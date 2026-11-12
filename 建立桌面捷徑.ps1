@@ -9,9 +9,57 @@ Add-Type -AssemblyName System.Windows.Forms, PresentationFramework, Presentation
 $Root   = $PSScriptRoot
 $Assets = Join-Path $Root '素材'
 $Themes = [ordered]@{
-    # PreviewWidth：經典的預覽圖四周留了陰影的空白，放大一點兩邊才一樣大。Tint 是預覽圖後面的底色，Accent 是「用這個」按鈕和滑鼠移上去時的邊框色
-    '經典' = @{ Title = '經典色';   Desc = 'Windows 11 風格，清爽俐落'; Icon = '經典圖示.ico'; Preview = '預覽-經典.png'; PreviewWidth = 226; Tint = '#E9EEF5'; Accent = '#0067C0' }
-    '可愛' = @{ Title = '草莓牛奶'; Desc = '奶油色配莓果粉，圓圓的字';  Icon = '莓果.ico';     Preview = '預覽-可愛.png'; PreviewWidth = 196; Tint = '#FBE3EA'; Accent = '#E2558F' }
+    # Tint 是預覽後面的底色，Accent 是「用這個」按鈕和滑鼠移上去時的邊框色
+    '經典' = @{ Title = '經典色';   Desc = 'Windows 11 風格，清爽俐落'; Icon = '經典圖示.ico'; Tint = '#E9EEF5'; Accent = '#0067C0' }
+    '可愛' = @{ Title = '草莓牛奶'; Desc = '奶油色配莓果粉，圓圓的字';  Icon = '莓果.ico';     Tint = '#FBE3EA'; Accent = '#E2558F' }
+}
+
+# 預覽用的縮小版「要登出了嗎？」視窗：只留標題，清單畫成線條、按鈕只寫兩個字，縮小了字也不會糊
+$BarWidths = 104, 70, 42, 88
+function New-MiniPreview($key) {
+    $cute = $key -eq '可愛'
+    $dot  = if ($cute) { '<Rectangle Width="5" Height="5" Fill="#FF5FA2"/>' } else { '<Ellipse Width="5" Height="5" Fill="#0067C0"/>' }
+    $bar  = if ($cute) { '#DCC6CD' } else { '#CFCFCF' }
+    $rows = ($BarWidths | ForEach-Object {
+        "<StackPanel Orientation='Horizontal' Margin='0,6,0,0'>$dot<Rectangle Width='$_' Height='5' RadiusX='2.5' RadiusY='2.5' Fill='$bar' Margin='6,0,0,0'/></StackPanel>"
+    }) -join ''
+    $ns = 'xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"'
+    $xaml = if ($cute) { @"
+<Border $ns Width="184" Background="#FFC8DD" BorderBrush="#3B1E2B" BorderThickness="2" Padding="3" HorizontalAlignment="Center" VerticalAlignment="Center">
+  <Border Background="#FFF7EE" BorderBrush="#3B1E2B" BorderThickness="2" Padding="11,9" TextElement.Foreground="#3B1E2B">
+    <StackPanel>
+      <TextBlock Text="要登出了嗎？" FontSize="13"/>
+      <Border Background="White" BorderBrush="#F2C9D8" BorderThickness="1" Padding="8,1,8,7" Margin="0,7,0,0"><StackPanel>$rows</StackPanel></Border>
+      <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,9,0,0">
+        <Border Background="#FFF7EE" BorderBrush="#3B1E2B" BorderThickness="1.5" Padding="7,1"><TextBlock Text="先不要" FontSize="10"/></Border>
+        <Border Background="#FF5FA2" BorderBrush="#3B1E2B" BorderThickness="1.5" Padding="9,1" Margin="5,0,0,0"><TextBlock Text="登出" FontSize="10" Foreground="White"/></Border>
+      </StackPanel>
+    </StackPanel>
+  </Border>
+</Border>
+"@ } else { @"
+<Border $ns Width="184" Background="White" BorderBrush="#E3E3E3" BorderThickness="1" CornerRadius="6" Padding="12,11" HorizontalAlignment="Center" VerticalAlignment="Center" TextElement.Foreground="#1B1B1B">
+  <Border.Effect><DropShadowEffect BlurRadius="12" ShadowDepth="2" Direction="270" Opacity="0.12"/></Border.Effect>
+  <StackPanel>
+    <StackPanel Orientation="Horizontal">
+      <Border Width="18" Height="18" CornerRadius="4" Background="#E5F0FB">
+        <Path Data="M8,4.5 H5 V13.5 H8 M8.5,9 H13.5 M11.2,6.6 L13.6,9 L11.2,11.4" Stroke="#0067C0" StrokeThickness="1.6"
+              StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
+      </Border>
+      <TextBlock Text="要登出了嗎？" FontSize="12" FontWeight="SemiBold" Margin="6,0,0,0" VerticalAlignment="Center"/>
+    </StackPanel>
+    <StackPanel Margin="0,2,0,0">$rows</StackPanel>
+    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,10,0,0">
+      <Border BorderBrush="#D6D6D6" BorderThickness="1" CornerRadius="3" Padding="8,1"><TextBlock Text="先不要" FontSize="10"/></Border>
+      <Border Background="#0067C0" CornerRadius="3" Padding="10,1" Margin="5,0,0,0"><TextBlock Text="登出" FontSize="10" Foreground="White"/></Border>
+    </StackPanel>
+  </StackPanel>
+</Border>
+"@ }
+    $el = [Windows.Markup.XamlReader]::Parse($xaml)
+    # 可愛風用附帶的粉圓體，跟真的視窗一樣
+    if ($cute) { try { $el.FontFamily = New-Object Windows.Media.FontFamily ([Uri]"$Assets\"), './#Huninn, Microsoft JhengHei UI' } catch {} }
+    return $el
 }
 
 $PickerXaml = @'
@@ -71,10 +119,8 @@ function Show-ThemePicker {
     foreach ($key in $Themes.Keys) {
         $t = $Themes[$key]
         $stack = New-Object Windows.Controls.StackPanel -Property @{ Width = 236 }
-        # 預覽：真的確認視窗縮小放在有顏色的底上
-        $img = New-Object Windows.Controls.Image -Property @{ Width = $t.PreviewWidth; Stretch = 'Uniform'; HorizontalAlignment = 'Center'; VerticalAlignment = 'Center' }
-        try { $img.Source = [Windows.Media.Imaging.BitmapFrame]::Create([Uri](Join-Path $Assets $t.Preview)) } catch {}
-        $null = $stack.Children.Add((New-Object Windows.Controls.Border -Property @{ Background = $t.Tint; CornerRadius = 6; Height = 156; Child = $img }))
+        # 預覽：縮小版的確認視窗放在有顏色的底上
+        $null = $stack.Children.Add((New-Object Windows.Controls.Border -Property @{ Background = $t.Tint; CornerRadius = 6; Height = 156; Child = (New-MiniPreview $key) }))
         # 圖示（就是桌面捷徑會用的）＋名稱和說明
         $row = New-Object Windows.Controls.StackPanel -Property @{ Orientation = 'Horizontal'; Margin = '2,10,2,10' }
         $ico = New-Object Windows.Controls.Image -Property @{ Width = 28; Height = 28; VerticalAlignment = 'Center' }
