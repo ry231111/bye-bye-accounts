@@ -1,8 +1,8 @@
 ﻿# 建立桌面捷徑：先選風格（經典色 / 草莓牛奶），然後在桌面建立「一鍵登出」捷徑。
 # 名字固定叫「一鍵登出」，只有圖示隨風格不同。選好的風格會記在「主題.txt」，直接跑 一鍵登出.ps1（沒給 -Theme）也會用同一種。
 #
-#   建立桌面捷徑.ps1              跳出選擇視窗
-#   建立桌面捷徑.ps1 -Theme 可愛   不問，直接用指定風格
+#   建立桌面捷徑(初次使用點我).ps1 跳出選擇視窗
+#   建立桌面捷徑(初次使用點我).ps1 -Theme 可愛 不問，直接用指定風格
 param([string]$Theme, [string]$Desktop)
 Add-Type -AssemblyName System.Windows.Forms, PresentationFramework, PresentationCore, WindowsBase
 
