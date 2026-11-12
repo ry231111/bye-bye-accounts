@@ -1,5 +1,5 @@
 ﻿# 建立桌面捷徑：先選風格（經典色 / 草莓牛奶），然後在桌面建立「一鍵登出」捷徑。
-# 名字固定叫「一鍵登出」，只有圖示隨風格不同。選好的風格會記在「主題.txt」，雙擊 一鍵登出.cmd 也會用同一種。
+# 名字固定叫「一鍵登出」，只有圖示隨風格不同。選好的風格會記在「主題.txt」，直接跑 一鍵登出.ps1（沒給 -Theme）也會用同一種。
 #
 #   建立桌面捷徑.ps1              跳出選擇視窗
 #   建立桌面捷徑.ps1 -Theme 可愛   不問，直接用指定風格
@@ -149,7 +149,7 @@ if ($interactive) { $Theme = Show-ThemePicker }
 if (-not $Theme) { exit }
 if (-not $Themes.Contains($Theme)) { throw "沒有「$Theme」這種風格，只有：$($Themes.Keys -join '、')" }
 
-# 記住風格，讓 一鍵登出.cmd 也用同一種
+# 記住風格，讓直接跑 一鍵登出.ps1 時也用同一種
 [IO.File]::WriteAllText((Join-Path $Root '主題.txt'), $Theme, (New-Object Text.UTF8Encoding $true))
 
 # 建立捷徑：名字固定「一鍵登出」，圖示依風格

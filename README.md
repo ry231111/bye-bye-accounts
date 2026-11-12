@@ -34,7 +34,7 @@
 3. 以後要登出就點桌面的捷徑，按「登出」或 Enter；「先不要」或 Esc 取消。
 4. 等「登出完成」出現再重新打開程式。
 
-想換風格，再執行一次 `建立桌面捷徑.cmd` 就好。不想建捷徑的人，直接雙擊 `一鍵登出.cmd` 也可以，會用你上次選的風格，沒選過就是經典色。
+想換風格，再執行一次 `建立桌面捷徑.cmd` 就好。
 
 ## 進階用法
 
@@ -68,7 +68,7 @@ powershell -ExecutionPolicy Bypass -File 一鍵登出.ps1 -DryRun
 - 少數網站把登入狀態放在 Local Storage 或 IndexedDB 而不是 cookie（例如 Discord 網頁版、部分用 Firebase 的網站），這些不會被登出。
 - 只處理 Chrome 和 Edge，Firefox 和其他瀏覽器不處理。
 - LINE 只處理一般安裝版；Microsoft Store 版的資料位置不同。
-- 不要從 Claude 桌面版或 VS Code 裡面的終端機執行，它們一被關掉，腳本也會跟著結束。請用捷徑或 `.cmd`。
+- 不要從 Claude 桌面版或 VS Code 裡面的終端機執行，它們一被關掉，腳本也會跟著結束。請用桌面捷徑。
 
 ## 需求
 
@@ -79,10 +79,9 @@ Windows 10 / 11，內建的 Windows PowerShell 5.1 即可。
 | 檔案 | 說明 |
 |---|---|
 | `一鍵登出.ps1` | 主程式，兩種風格都在裡面（UTF-8 含 BOM，改完請保留 BOM） |
-| `一鍵登出.cmd` | 直接雙擊執行用 |
 | `建立桌面捷徑.cmd` / `.ps1` | 選風格、在桌面建立捷徑 |
 | `給AI的提示詞.md` | 想加新的登出項目時，貼給 AI 助理的提示詞 |
 | `素材\` | 兩個圖示、兩張預覽圖、粉圓體 `Huninn-Regular.ttf` 和它的授權書 `OFL.txt` |
-| `主題.txt` | 你選的風格，由建立捷徑時寫入，不在倉庫裡 |
+| `主題.txt` | 你選的風格，由建立捷徑時寫入（直接跑 `一鍵登出.ps1` 沒給 `-Theme` 時用），不在倉庫裡 |
 
 粉圓體（Huninn）來自 [justfont 的 Huninn 專案](https://github.com/justfont/Huninn)，以 SIL Open Font License 1.1 釋出，授權書在 `素材\OFL.txt`。
