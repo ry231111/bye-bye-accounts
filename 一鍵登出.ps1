@@ -1,0 +1,380 @@
+﻿# 一鍵登出：Claude 桌面版、Claude Code、VS Code 的 Codex、LINE、Chrome / Edge 裡的所有網站
+# 只會關閉這幾個程式，並刪除「登入用的 cookie / token」。不會刪書籤、歷史紀錄、密碼、LINE 聊天紀錄，也不會改系統設定。
+#
+# 用法：
+#   一鍵登出.ps1                    正式執行（會先跳出確認視窗）
+#   一鍵登出.ps1 -DryRun            演練：不關程式、不刪任何東西，只回報「會刪掉什麼」
+#   一鍵登出.ps1 -TestRoot <資料夾>  測試：只對該資料夾裡的假資料動手，不關程式、不碰真正的登入資料
+param([switch]$DryRun, [switch]$Yes, [string]$TestRoot, [int]$WatchPid)
+
+Add-Type -AssemblyName System.Windows.Forms, PresentationFramework, PresentationCore, WindowsBase
+
+# LINE 的主程式和它附帶的小程式（通話、播放器、更新程式等）
+$LineProcs = 'LINE', 'LineLauncher', 'LineAppMgr', 'LineConnector', 'LineUpdater', 'LineCall', 'LineMediaPlayer'
+
+$Local   = if ($TestRoot) { "$TestRoot\Local" }   else { $env:LOCALAPPDATA }
+$Roaming = if ($TestRoot) { "$TestRoot\Roaming" } else { $env:APPDATA }
+$HomeDir = if ($TestRoot) { "$TestRoot\Home" }    else { $env:USERPROFILE }
+$WorkDir = if ($TestRoot) { $TestRoot }           else { $env:TEMP }
+
+$Live   = -not $DryRun -and -not $TestRoot   # 會真的關閉程式
+$Change = -not $DryRun                       # 會真的改檔案
+$Done   = if ($Change) { '已登出' } else { '目前是登入狀態，正式執行時會登出' }
+
+# 執行紀錄，出問題時可以看是哪一步失敗
+$LogFile   = Join-Path $WorkDir '一鍵登出-紀錄.txt'
+# 已完成的步驟。主程序中途被關掉時，備援程序靠這個檔案接手沒做完的部分
+$StateFile = Join-Path $WorkDir '一鍵登出-狀態.txt'
+
+function Log($m) {
+    try { Add-Content -LiteralPath $LogFile -Value ('{0:MM/dd HH:mm:ss.fff} [{1}] {2}' -f (Get-Date), $PID, $m) -Encoding UTF8 } catch {}
+}
+trap { Log "錯誤：$_"; continue }
+
+function Show-Box($text, $buttons = 'OK', $icon = 'Information') {
+    [System.Windows.Forms.MessageBox]::Show($text, '一鍵登出', $buttons, $icon,
+        'Button1', 'DefaultDesktopOnly')
+}
+
+# ---- 對話視窗（Windows 11 風格）----
+# 只用系統內建字型，不需要額外檔案
+$DialogXaml = @'
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="一鍵登出" WindowStyle="None" AllowsTransparency="True" Background="Transparent"
+        ResizeMode="NoResize" SizeToContent="WidthAndHeight" WindowStartupLocation="CenterScreen"
+        Topmost="True" UseLayoutRounding="True" SnapsToDevicePixels="True"
+        FontFamily="Segoe UI Variable Text, Microsoft JhengHei UI"
+        TextOptions.TextFormattingMode="Ideal" TextOptions.TextRenderingMode="ClearType">
+  <Window.Resources>
+    <!-- 按鈕：Tag 是滑鼠移上去時的底色 -->
+    <ControlTemplate x:Key="FlatButton" TargetType="Button">
+      <Border x:Name="Face" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+              BorderThickness="1" CornerRadius="6" MinWidth="104" Height="34" Padding="18,0">
+        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+      </Border>
+      <ControlTemplate.Triggers>
+        <Trigger Property="IsMouseOver" Value="True">
+          <Setter TargetName="Face" Property="Background" Value="{Binding Tag, RelativeSource={RelativeSource TemplatedParent}}"/>
+        </Trigger>
+        <Trigger Property="IsPressed" Value="True"><Setter TargetName="Face" Property="Opacity" Value="0.8"/></Trigger>
+        <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="Face" Property="BorderBrush" Value="#1B1B1B"/></Trigger>
+      </ControlTemplate.Triggers>
+    </ControlTemplate>
+  </Window.Resources>
+  <!-- 外面留 24 給陰影 -->
+  <Border Margin="24" Background="#FFFFFF" BorderBrush="#E5E5E5" BorderThickness="1" CornerRadius="8"
+          Padding="28,24,28,24" TextElement.Foreground="#1B1B1B">
+    <Border.Effect><DropShadowEffect BlurRadius="28" ShadowDepth="6" Direction="270" Opacity="0.14" Color="#000000"/></Border.Effect>
+    <StackPanel Width="400">
+      <StackPanel Orientation="Horizontal" Margin="0,0,0,16">
+        <Border Width="36" Height="36" CornerRadius="8" Background="#EAF2FB" Margin="0,0,12,0" VerticalAlignment="Center">
+          <Path Fill="#0067C0" Width="18" Height="18" Stretch="Uniform"
+                Data="M3,3 H11 V5 H5 V19 H11 V21 H3 Z M15,7 L20,12 L15,17 V13.5 H9 V10.5 H15 Z"/>
+        </Border>
+        <TextBlock x:Name="Head" FontSize="20" FontWeight="SemiBold" VerticalAlignment="Center"/>
+      </StackPanel>
+      <TextBlock x:Name="Intro" FontSize="14" LineHeight="22" TextWrapping="Wrap" Margin="0,0,0,8"/>
+      <StackPanel x:Name="Items" Margin="2,0,0,8"/>
+      <TextBlock x:Name="Note" FontSize="13" LineHeight="20" Foreground="#6E6E6E" TextWrapping="Wrap" Margin="0,8,0,0"/>
+      <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,24,0,0">
+        <Button x:Name="No" Template="{StaticResource FlatButton}" Background="#FFFFFF" Tag="#F5F5F5" BorderBrush="#D6D6D6"
+                Foreground="#1B1B1B" FontSize="14" IsCancel="True" Margin="0,0,8,0"/>
+        <Button x:Name="Yes" Template="{StaticResource FlatButton}" Background="#0067C0" Tag="#1975C5" BorderBrush="#0067C0"
+                Foreground="#FFFFFF" FontSize="14" FontWeight="SemiBold" IsDefault="True"/>
+      </StackPanel>
+    </StackPanel>
+  </Border>
+</Window>
+'@
+
+function New-Dialog($head, $intro, [string[]]$items, $note, $okText, $cancelText) {
+    $win = [Windows.Markup.XamlReader]::Parse($DialogXaml)
+    try { $win.Icon = [Windows.Media.Imaging.BitmapFrame]::Create([Uri](Join-Path $PSScriptRoot '圖示\一鍵登出.ico')) } catch {}   # 工作列和 Alt-Tab 用的圖示，沒有也沒關係
+    $win.FindName('Head').Text = $head
+    foreach ($pair in @(@('Intro', $intro), @('Note', $note))) {
+        $tb = $win.FindName($pair[0])
+        if ($pair[1]) { $tb.Text = $pair[1] } else { $tb.Visibility = 'Collapsed' }
+    }
+    # 清單：每項前面一個藍色小圓點
+    $list = $win.FindName('Items')
+    foreach ($i in $items) {
+        $row = New-Object Windows.Controls.DockPanel
+        $row.Margin = '0,0,0,6'
+        $dot = New-Object Windows.Shapes.Ellipse -Property @{ Width = 5; Height = 5; Fill = '#0067C0'; Margin = '0,8,10,0'; VerticalAlignment = 'Top' }
+        $text = New-Object Windows.Controls.TextBlock -Property @{ Text = $i; FontSize = 14; LineHeight = 21; TextWrapping = 'Wrap' }
+        $null = $row.Children.Add($dot); $null = $row.Children.Add($text)
+        $null = $list.Children.Add($row)
+    }
+    $okBtn = $win.FindName('Yes'); $noBtn = $win.FindName('No')
+    $okBtn.Content = $okText
+    if ($cancelText) { $noBtn.Content = $cancelText } else { $noBtn.Visibility = 'Collapsed'; $okBtn.IsCancel = $true }
+    $okBtn.add_Click({ $w = [Windows.Window]::GetWindow($this); $w.Tag = $true; $w.Close() })
+    $noBtn.add_Click({ [Windows.Window]::GetWindow($this).Close() })
+    $win.add_MouseLeftButtonDown({ $this.DragMove() })   # 沒有標題列，按住任何地方都能拖
+    $win.add_Loaded({ $this.Activate() })
+    return $win
+}
+
+# 按下 okText 回傳 $true。對話視窗出錯時改用一般的 Windows 視窗，確保一定看得到
+function Show-Dialog($head, $intro, [string[]]$items, $note, $okText = '好', $cancelText) {
+    try {
+        $win = New-Dialog $head $intro $items $note $okText $cancelText
+        $null = $win.ShowDialog()
+        return [bool]$win.Tag
+    } catch {
+        Log "對話視窗失敗，改用一般視窗：$($_.Exception.Message)"
+        $text = (@($head, $intro) + @($items | ForEach-Object { "• $_" }) + @($note) | Where-Object { $_ }) -join "`n"
+        $buttons = if ($cancelText) { 'YesNo' } else { 'OK' }
+        return (Show-Box $text $buttons) -in 'Yes', 'OK'
+    }
+}
+
+# 用 Windows 內建的 winsqlite3.dll 操作 Chrome / Edge 的 cookie 資料庫，不需安裝任何東西
+Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public static class WinSqlite {
+    [DllImport("winsqlite3.dll", CharSet = CharSet.Unicode)] static extern int sqlite3_open16(string file, out IntPtr db);
+    [DllImport("winsqlite3.dll")] static extern int sqlite3_close(IntPtr db);
+    [DllImport("winsqlite3.dll")] static extern int sqlite3_busy_timeout(IntPtr db, int ms);
+    [DllImport("winsqlite3.dll")] static extern int sqlite3_exec(IntPtr db, byte[] sql, IntPtr cb, IntPtr arg, out IntPtr err);
+    [DllImport("winsqlite3.dll")] static extern int sqlite3_changes(IntPtr db);
+    [DllImport("winsqlite3.dll")] static extern IntPtr sqlite3_errmsg16(IntPtr db);
+
+    // 執行一句 SQL，回傳受影響的列數
+    public static int Exec(string file, string sql) {
+        IntPtr db;
+        if (sqlite3_open16(file, out db) != 0) {
+            string m = Marshal.PtrToStringUni(sqlite3_errmsg16(db));
+            sqlite3_close(db);
+            throw new Exception(m);
+        }
+        try {
+            sqlite3_busy_timeout(db, 1000);
+            IntPtr err;
+            if (sqlite3_exec(db, System.Text.Encoding.UTF8.GetBytes(sql + "\0"), IntPtr.Zero, IntPtr.Zero, out err) != 0)
+                throw new Exception(Marshal.PtrToStringUni(sqlite3_errmsg16(db)));
+            return sqlite3_changes(db);
+        } finally {
+            sqlite3_close(db);
+        }
+    }
+}
+'@
+
+$Results = [ordered]@{}
+$State = @{}
+
+# ---- 關閉程式 ----
+# 先請程式自己關（視窗收到關閉訊息），等不到就強制結束
+function Request-Close([string[]]$names) {
+    if (-not $Live) { return }
+    foreach ($n in $names) { & cmd.exe /c "taskkill /IM $n.exe >nul 2>&1" }
+}
+function Stop-Now([string[]]$names, [int]$waitMs = 0) {
+    if (-not $Live) { return }
+    $deadline = (Get-Date).AddMilliseconds($waitMs)
+    while ((Get-Process -Name $names -ErrorAction SilentlyContinue) -and (Get-Date) -lt $deadline) {
+        Start-Sleep -Milliseconds 100
+    }
+    for ($i = 0; $i -lt 30; $i++) {
+        $left = Get-Process -Name $names -ErrorAction SilentlyContinue
+        if (-not $left) { return }
+        $left | Stop-Process -Force -ErrorAction SilentlyContinue
+        Start-Sleep -Milliseconds 100
+    }
+    Log "關不掉：$((Get-Process -Name $names -ErrorAction SilentlyContinue).Name -join ', ')"
+}
+
+# 做一件事，失敗就再關一次程式後重試。
+# 昨天的紀錄顯示 Claude 被關掉 1 秒內就會重新啟動並鎖住檔案，所以要緊接著做、短間隔重試
+function Invoke-WithRetry([string[]]$procs, [scriptblock]$body) {
+    $max = if ($Live) { 20 } else { 1 }
+    for ($try = 1; ; $try++) {
+        try { return (& $body) }
+        catch {
+            if ($try -ge $max) { throw }
+            Log "第 $try 次失敗，重試：$($_.Exception.Message)"
+            Stop-Now $procs
+            Start-Sleep -Milliseconds 100
+        }
+    }
+}
+
+# 執行一個步驟並記下結果。上一個程序已經做完的步驟會跳過
+function Step($key, $label, [scriptblock]$body) {
+    if ($State.ContainsKey($key)) { $Results[$key] = $State[$key]; return }
+    try { $msg = "${label}：$(& $body)"; $ok = $true }
+    catch {
+        $ok = $false
+        $msg = if ($Change) { "${label}：失敗（$($_.Exception.Message)）" }
+               else { "${label}：程式開著、檔案被鎖住，演練模式看不到" }
+    }
+    Log $msg
+    $Results[$key] = $msg
+    if ($ok -and $Change) { Add-Content -LiteralPath $StateFile -Value "$key`t$msg" -Encoding UTF8 }
+}
+
+# ---- 各項登出動作（都可以重複執行）----
+function Remove-LoginFile($path) {
+    if (-not (Test-Path -LiteralPath $path)) { return '本來就沒登入' }
+    if ($Change) { Remove-Item -LiteralPath $path -Force -ErrorAction Stop }
+    return $Done
+}
+
+# 演練模式下，SQL 只在複製出來的檔案上執行，原檔完全不動
+function Invoke-Sql($file, $sql) {
+    if ($Change) { return [WinSqlite]::Exec($file, $sql) }
+    $copy = Join-Path $env:TEMP ("logout-dryrun-" + [guid]::NewGuid().ToString() + '.db')
+    try { Copy-Item -LiteralPath $file -Destination $copy -ErrorAction Stop; return [WinSqlite]::Exec($copy, $sql) }
+    finally { Remove-Item -LiteralPath $copy -Force -ErrorAction SilentlyContinue }
+}
+
+function Clear-Browser($root, [string[]]$procs) {
+    if (-not (Test-Path -LiteralPath $root)) { return '沒有安裝' }
+    $profiles = @(Get-ChildItem -LiteralPath $root -Directory)
+    $cookies = 0; $tokens = 0
+    foreach ($p in $profiles) {
+        $f = Join-Path $p.FullName 'Network\Cookies'
+        if (Test-Path -LiteralPath $f) {
+            # 所有網站的 cookie 都刪掉（Google、GitHub、ChatGPT……全部登出）
+            $cookies += Invoke-WithRetry $procs { Invoke-Sql $f 'DELETE FROM cookies' }
+        }
+        # 瀏覽器本身登入的 Google 帳號（同步用的帳號 token）
+        $w = Join-Path $p.FullName 'Web Data'
+        if (Test-Path -LiteralPath $w) {
+            $tokens += Invoke-WithRetry $procs { Invoke-Sql $w 'DELETE FROM token_service' }
+        }
+    }
+    return "刪除 $cookies 個 cookie（所有網站）、$tokens 個瀏覽器帳號 token"
+}
+
+# LINE 沒開「自動登入」時，關掉就等於登出。
+# qci_*.bin 是隱藏檔，第一次登入時建立、每次登入都會更新，存的是登入資料；一併刪掉，下次一定要重新登入。
+# 聊天紀錄（db 資料夾）不動
+function Clear-Line {
+    $files = @(Get-ChildItem -LiteralPath "$Local\LINE\Data" -Filter 'qci_*.bin' -Force -File -ErrorAction SilentlyContinue)
+    if (-not $files) { return '本來就沒登入' }
+    if ($Change) { $files | Remove-Item -Force -ErrorAction Stop }
+    return $Done
+}
+
+$ClaudeTokenKeys = 'oauth:tokenCache', 'oauth:tokenCacheV2', 'lastKnownAccountUuid'
+function Clear-ClaudeDesktop {
+    $roots = @(Get-ChildItem -LiteralPath "$Local\Claude-Data" -Directory -ErrorAction SilentlyContinue) +
+             @(Get-Item -LiteralPath "$Roaming\Claude" -ErrorAction SilentlyContinue) | Where-Object { $_ }
+    $files = 0; $keys = 0
+    foreach ($r in $roots) {
+        # cookie 整個檔案刪掉，Claude 下次啟動會自己重建
+        # 只看固定的幾個位置，不整個資料夾搜尋，才搶得贏 Claude 重新啟動
+        $dirs = @("$($r.FullName)\Network") +
+                @(Get-ChildItem -LiteralPath "$($r.FullName)\Partitions" -Directory -ErrorAction SilentlyContinue | ForEach-Object { "$($_.FullName)\Network" })
+        $found = $dirs | ForEach-Object { "$_\Cookies", "$_\Cookies-journal" } |
+                 Where-Object { Test-Path -LiteralPath $_ } | ForEach-Object { Get-Item -LiteralPath $_ -Force }
+        foreach ($f in $found) {
+            if ($Change) { Remove-Item -LiteralPath $f.FullName -Force -ErrorAction Stop }
+            if ($f.Name -eq 'Cookies') { $files++ }
+        }
+        $cfgPath = Join-Path $r.FullName 'config.json'
+        if (-not (Test-Path -LiteralPath $cfgPath)) { continue }
+        $cfg = Get-Content -LiteralPath $cfgPath -Raw -Encoding UTF8 | ConvertFrom-Json
+        $hit = @($ClaudeTokenKeys | Where-Object { $cfg.PSObject.Properties[$_] })
+        if (-not $hit) { continue }
+        $keys += $hit.Count
+        if ($Change) {
+            foreach ($k in $hit) { $cfg.PSObject.Properties.Remove($k) }
+            $json = $cfg | ConvertTo-Json -Depth 100
+            $null = $json | ConvertFrom-Json   # 確認寫回去的內容是合法 JSON 才存檔
+            [IO.File]::WriteAllText($cfgPath, $json, (New-Object Text.UTF8Encoding $false))
+        }
+    }
+    if (-not $files -and -not $keys) { return '本來就沒登入' }
+    return "$Done（$files 個 cookie 檔、$keys 個帳號 token）"
+}
+
+# ---- 備援程序：等主程序結束，沒做完就接手 ----
+$Resumed = $false
+if ($WatchPid) {
+    $main = Get-Process -Id $WatchPid -ErrorAction SilentlyContinue
+    if ($main) {
+        $null = $main.Handle   # 先握住，結束後才讀得到結束代碼
+        if (-not $main.WaitForExit(120000)) { exit }
+        Log "主程序 $WatchPid 已結束，結束代碼 $($main.ExitCode)"
+    }
+    $lines = @(Get-Content -LiteralPath $StateFile -Encoding UTF8 -ErrorAction SilentlyContinue)
+    if ($lines -contains 'DONE') { exit }
+    Log '主程序沒做完，由備援程序接手'
+    foreach ($l in $lines) { $k, $v = $l -split "`t", 2; if ($v) { $State[$k] = $v } }
+    $Resumed = $true
+}
+
+# ---- 0. 確認 ----
+if ($Live -and -not $Yes -and -not $Resumed) {
+    $ok = Show-Dialog '要登出了嗎？' '會關閉 Chrome、Edge、Claude、VS Code、LINE，並登出：' @(
+        'Claude 桌面版 / Claude Code', 'VS Code 的 Codex', 'LINE',
+        'Chrome、Edge 裡的所有網站（Google、GitHub、ChatGPT……）') `
+        '等出現「登出完成」再重新打開這些程式（大約 5 秒）' '登出' '先不要'
+    if (-not $ok) { exit }
+}
+
+Log "==== 開始（演練=$DryRun 測試=$([bool]$TestRoot) 接手=$Resumed）===="
+
+try {
+    if (-not $Resumed -and $Change) { Set-Content -LiteralPath $StateFile -Value $null -Encoding UTF8 }
+
+    # 啟動備援程序。它由 Windows 的 WMI 服務啟動，不屬於 Claude 或 VS Code，關掉它們時不會被連帶關掉
+    if ($Live -and -not $Resumed) {
+        $cmd = "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$PSCommandPath`" -WatchPid $PID"
+        $r = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = $cmd }
+        Log "備援程序：代碼 $($r.ReturnValue)，PID $($r.ProcessId)"
+    }
+
+    $codexFile  = "$HomeDir\.codex\auth.json"
+    $claudeFile = "$HomeDir\.claude\.credentials.json"
+
+    # ---- 1. 最快的先做：刪登入檔，並請瀏覽器和 VS Code 開始關閉 ----
+    Step 'codex'      'Codex（VS Code）' { Remove-LoginFile $codexFile }
+    Step 'claudecode' 'Claude Code'      { Remove-LoginFile $claudeFile }
+    Request-Close 'Code', 'chrome', 'msedge'
+
+    # ---- 2. Claude 桌面版：直接強制結束，緊接著清除（它正常關閉要 7 秒，而且會自己重開）----
+    Step 'claude' 'Claude 桌面版' {
+        Stop-Now 'claude'
+        Invoke-WithRetry 'claude' { Clear-ClaudeDesktop }
+    }
+
+    # ---- 3. LINE：關閉時只會縮到右下角，所以直接強制結束 ----
+    Step 'line' 'LINE' {
+        Stop-Now $LineProcs
+        Invoke-WithRetry $LineProcs { Clear-Line }
+    }
+
+    # ---- 4. VS Code：關掉後再刪一次登入檔，避免它在關閉前把 token 寫回去 ----
+    Stop-Now 'Code', 'codex' 2000
+    foreach ($f in $codexFile, $claudeFile) {
+        if ($Change -and (Test-Path -LiteralPath $f)) { Remove-Item -LiteralPath $f -Force -ErrorAction SilentlyContinue; Log "再次刪除 $f" }
+    }
+
+    # ---- 5. Chrome / Edge：刪掉所有網站的 cookie ----
+    Step 'chrome' 'Chrome' { Stop-Now 'chrome' 1500; Clear-Browser "$Local\Google\Chrome\User Data" 'chrome' }
+    Step 'edge'   'Edge'   { Stop-Now 'msedge' 1500; Clear-Browser "$Local\Microsoft\Edge\User Data" 'msedge' }
+
+    if ($Change) { Add-Content -LiteralPath $StateFile -Value 'DONE' -Encoding UTF8 }
+}
+finally {
+    # ---- 6. 結果：不管中途發生什麼事都要顯示 ----
+    $failed = @($Results.Values | Where-Object { $_ -match '失敗' }).Count
+    $missing = 6 - $Results.Count   # 共 6 個步驟，少了代表中途停掉
+    $head, $sub = if ($DryRun) { '演練模式', '沒有真的刪除任何東西' }
+                  elseif ($TestRoot) { '測試模式', '只動了測試資料夾' }
+                  elseif ($failed -or $missing -gt 0) { '有些沒登出成功', '請看上面哪一項寫著「失敗」' }
+                  else { '登出完成！', '現在可以重新打開程式了' }
+    $title = "$head$sub"
+    $text = $title + "`n`n" + ($Results.Values -join "`n")
+    Log "==== 結束：$title ===="
+    Write-Output $text
+    if (-not $Yes -and -not $TestRoot) {
+        Show-Dialog $head '' @($Results.Values) $sub '好' | Out-Null
+    }
+}
