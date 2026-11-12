@@ -148,27 +148,27 @@ $CuteXaml = @'
       </Border>
       <ControlTemplate.Triggers>
         <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Face" Property="BorderBrush" Value="#FF5FA2"/></Trigger>
-        <Trigger Property="IsPressed" Value="True"><Setter TargetName="Shade" Property="BorderThickness" Value="3,3,0,0"/></Trigger>
+        <Trigger Property="IsPressed" Value="True"><Setter TargetName="Shade" Property="BorderThickness" Value="4,4,0,0"/></Trigger>
       </ControlTemplate.Triggers>
     </ControlTemplate>
   </Window.Resources>
-  <Border Background="#FFE6F1" BorderBrush="#3B1E2B" BorderThickness="4" Padding="6" TextElement.Foreground="#3B1E2B">
-    <Border BorderBrush="White" BorderThickness="3" Padding="20,16">
-      <StackPanel Width="360">
-        <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
-          <Image x:Name="Logo" Width="32" Height="32" Margin="0,0,10,0" VerticalAlignment="Center" RenderOptions.EdgeMode="Aliased"/>
-          <TextBlock x:Name="Head" FontSize="21" VerticalAlignment="Center"/>
-        </StackPanel>
-        <TextBlock x:Name="Intro" FontSize="14" TextWrapping="Wrap" Margin="0,0,0,6"/>
-        <StackPanel x:Name="Items" Margin="4,0,0,6"/>
-        <TextBlock x:Name="Note" FontSize="13" TextWrapping="Wrap" Margin="0,4,0,0"/>
-        <DockPanel Margin="0,18,0,0" LastChildFill="False">
+  <!-- 草莓牛奶配色：外圈淡粉、內層奶油色、可可色框線，粉紅只留給按鈕和勾勾 -->
+  <Border Background="#FFC8DD" BorderBrush="#3B1E2B" BorderThickness="4" Padding="8" TextElement.Foreground="#3B1E2B">
+    <Border Background="#FFF7EE" BorderBrush="#3B1E2B" BorderThickness="3" Padding="22,18">
+      <StackPanel Width="368">
+        <TextBlock x:Name="Head" FontSize="24"/>
+        <TextBlock x:Name="Intro" FontSize="13.5" Foreground="#8A5E70" TextWrapping="Wrap" Margin="0,4,0,0"/>
+        <Border Background="White" BorderBrush="#F2C9D8" BorderThickness="2" Padding="12,8" Margin="0,16,0,0">
+          <StackPanel x:Name="Items"/>
+        </Border>
+        <TextBlock x:Name="Note" FontSize="13.5" Foreground="#8A5E70" TextWrapping="Wrap" Margin="0,10,0,0"/>
+        <DockPanel Margin="0,16,0,0" LastChildFill="False">
           <StackPanel x:Name="Hint" DockPanel.Dock="Left" Orientation="Horizontal" VerticalAlignment="Center">
             <Image x:Name="Clock" Width="18" Height="18" Margin="0,0,6,0" VerticalAlignment="Center" RenderOptions.EdgeMode="Aliased"/>
-            <TextBlock x:Name="HintText" FontSize="14" Foreground="#7A4A5E" VerticalAlignment="Center"/>
+            <TextBlock x:Name="HintText" FontSize="14" Foreground="#8A5E70" VerticalAlignment="Center"/>
           </StackPanel>
           <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
-            <Button x:Name="No" Template="{StaticResource PixelButton}" Background="White" Tag="#D9C3CD"
+            <Button x:Name="No" Template="{StaticResource PixelButton}" Background="#FFF7EE" Tag="#E6CBD5"
                     Foreground="#3B1E2B" FontSize="15" IsCancel="True" Margin="0,0,12,0"/>
             <Button x:Name="Yes" Template="{StaticResource PixelButton}" Background="#FF5FA2" Tag="#C7357A"
                     Foreground="White" FontSize="15" IsDefault="True"/>
@@ -180,26 +180,9 @@ $CuteXaml = @'
 </Window>
 '@
 
-# 像素電梯關門鍵 ▶|◀，和捷徑圖示同一張。每個字母是一格的顏色
-$LogoRows = @(
-    '.....KKKKKK.....',
-    '...KKPPPPPPKK...',
-    '..KPWWPPPPPPPK..',
-    '.KPWPPPPPPPPPSK.',
-    '.KPPPPPPPPPPPSK.',
-    'KPPWPPPWWPPPWPSK',
-    'KPPWWPPWWPPWWPSK',
-    'KPPWWWPWWPWWWPSK',
-    'KPPWWWPWWPWWWPSK',
-    'KPPWWPPWWPPWWPSK',
-    'KPPWPPPWWPPPWPSK',
-    'KPPPPPPPPPPPPPSK',
-    '.KPPPPPPPPPPPSK.',
-    '..KPPPPPPPPPSK..',
-    '...KKSSSSSSKK...',
-    '.....KKKKKK.....'
-)
-$LogoColors = @{ K = '#3B1E2B'; P = '#FF5FA2'; S = '#C7357A'; W = '#FFFFFF' }
+# 結果清單前面的像素勾勾和叉叉
+$CheckRows = @('.......K', '......KK', 'K....KK.', 'KK..KK..', '.KKKK...', '..KK....')
+$CrossRows = @('K....K', 'KK..KK', '.KKKK.', '.KKKK.', 'KK..KK', 'K....K')
 
 # 按鈕左邊「大約需要5秒」前面的像素小時鐘
 $ClockRows = @(
@@ -235,9 +218,8 @@ function New-CuteWindow($head, $intro, [string[]]$items, $note, $okText, $cancel
     $win = [Windows.Markup.XamlReader]::Parse($CuteXaml)
     try { $win.FontFamily = New-Object Windows.Media.FontFamily ([Uri]"$FontDir\"), './#Huninn, Microsoft JhengHei UI' }
     catch { $win.FontFamily = 'Microsoft JhengHei UI' }
-    # 工作列上的圖示，和捷徑同一顆愛心
+    # 工作列上的圖示，和捷徑同一顆關門鍵（視窗裡不畫圖示，標題就是純文字）
     try { $win.Icon = [Windows.Media.Imaging.BitmapFrame]::Create([Uri](Join-Path $FontDir '關門鍵.ico')) } catch {}
-    $win.FindName('Logo').Source = New-PixelImage $LogoRows $LogoColors
     if ($hint) {
         $win.FindName('Clock').Source = New-PixelImage $ClockRows $ClockColors
         $win.FindName('HintText').Text = $hint
@@ -247,14 +229,26 @@ function New-CuteWindow($head, $intro, [string[]]$items, $note, $okText, $cancel
         $tb = $win.FindName($pair[0])
         if ($pair[1]) { $tb.Text = $pair[1] } else { $tb.Visibility = 'Collapsed' }
     }
-    # 清單：每項前面一個粉色小方塊
+    # 清單：失敗的打紅叉，登出了的打粉勾（只留名稱），其他（確認視窗的項目、演練模式）用粉色小方塊
     $list = $win.FindName('Items')
     foreach ($i in $items) {
         $row = New-Object Windows.Controls.DockPanel
-        $row.Margin = '0,3,0,0'
-        $dot = New-Object Windows.Shapes.Rectangle -Property @{ Width = 6; Height = 6; Fill = '#FF5FA2'; Margin = '0,7,10,0'; VerticalAlignment = 'Top' }
-        $text = New-Object Windows.Controls.TextBlock -Property @{ Text = $i; FontSize = 14; TextWrapping = 'Wrap' }
-        $null = $row.Children.Add($dot); $null = $row.Children.Add($text)
+        $row.Margin = '0,4,0,4'
+        $mark = New-Object Windows.Controls.Image -Property @{ Width = 16; Height = 14; Margin = '0,3,10,0'; VerticalAlignment = 'Top' }
+        [Windows.Media.RenderOptions]::SetEdgeMode($mark, 'Aliased')
+        $text = New-Object Windows.Controls.TextBlock -Property @{ Text = $i; FontSize = 14.5; TextWrapping = 'Wrap' }
+        if ($i -match '：失敗') {
+            $mark.Source = New-PixelImage $CrossRows @{ K = '#D94A4A' }
+            $text.Foreground = '#B23A3A'
+        } elseif ($i -match '^(.+)：已登出') {
+            $mark.Source = New-PixelImage $CheckRows @{ K = '#FF5FA2' }
+            $text.Text = $Matches[1]
+        } elseif ($i -match '：本來就沒登入') {
+            $mark.Source = New-PixelImage $CheckRows @{ K = '#FF5FA2' }
+        } else {
+            $mark = New-Object Windows.Shapes.Rectangle -Property @{ Width = 7; Height = 7; Fill = '#FF5FA2'; Margin = '2,7,17,0'; VerticalAlignment = 'Top' }
+        }
+        $null = $row.Children.Add($mark); $null = $row.Children.Add($text)
         $null = $list.Children.Add($row)
     }
     $okBtn = $win.FindName('Yes'); $noBtn = $win.FindName('No')
@@ -463,10 +457,15 @@ if ($WatchPid) {
 
 # ---- 0. 確認 ----
 if ($Live -and -not $Yes -and -not $Resumed) {
-    $ok = Show-Dialog '要登出了嗎？' '會關閉 Chrome、Edge、Claude、VS Code、LINE，並登出：' @(
-        'Claude 桌面版 / Claude Code', 'VS Code 的 Codex', 'LINE',
-        'Chrome、Edge 裡的所有網站（Google、GitHub、ChatGPT……）') `
-        '等出現「登出完成」再重新打開這些程式' '登出' '先不要' '大約需要 5 秒'
+    $what = 'Claude 桌面版 / Claude Code', 'VS Code 的 Codex', 'LINE',
+            'Chrome、Edge 裡的所有網站（Google、GitHub、ChatGPT……）'
+    # 兩種風格的文案不同：可愛風說得比較輕，也不放最下面那句提醒
+    $ok = if ($Theme -eq '可愛') {
+        Show-Dialog '要登出了嗎？' '會先關掉 Chrome、Edge、Claude、VS Code、LINE' $what '' '登出' '先不要' '大約需要 5 秒'
+    } else {
+        Show-Dialog '要登出了嗎？' '會關閉 Chrome、Edge、Claude、VS Code、LINE，並登出：' $what `
+            '等出現「登出完成」再重新打開這些程式' '登出' '先不要' '大約需要 5 秒'
+    }
     if (-not $ok) { exit }
 }
 
@@ -527,6 +526,14 @@ finally {
     Log "==== 結束：$title ===="
     Write-Output $text
     if (-not $Yes -and -not $TestRoot) {
-        Show-Dialog $head '' @($Results.Values) $sub '好' | Out-Null
+        $intro = ''
+        if ($Theme -eq '可愛') {
+            # 可愛風：大標題下面一行輕鬆的副標
+            $head, $intro, $sub = if ($DryRun) { '演練模式', '沒有真的刪除任何東西', '' }
+                                  elseif ($failed) { '有些沒登出成功', '打叉的那項要自己登出一下', '' }
+                                  elseif ($missing -gt 0) { '有些還沒做完', '再按一次一鍵登出就好', '' }
+                                  else { '都登出囉！', '下課愉快', '現在可以重新打開程式了' }
+        }
+        Show-Dialog $head $intro @($Results.Values) $sub '好' | Out-Null
     }
 }
