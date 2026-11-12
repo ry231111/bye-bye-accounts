@@ -4,17 +4,17 @@
 
 兩種風格，名字都叫「一鍵登出」，只有長相不同，自己選一個：
 
-| 經典色 | 可愛粉 |
+| 經典色 | 草莓牛奶 |
 |:---:|:---:|
-| ![經典色](素材/預覽-經典.png) | ![可愛粉](素材/預覽-可愛.png) |
-| Windows 11 風格，只用系統字型 | 粉色像素風，附粉圓體 |
+| ![經典色](素材/預覽-經典.png) | ![草莓牛奶](素材/預覽-可愛.png) |
+| Windows 11 風格，只用系統字型 | 奶油色配莓果粉，附粉圓體 |
 
 ## 會做什麼
 
 關閉下列程式，並刪除「登入用的 cookie / token」，下次打開要重新登入：
 
 - **Claude 桌面版**、**Claude Code**
-- **VS Code 的 Codex**
+- **VS Code** 本身登入的帳號（GitHub、微軟……），和 **Codex 擴充功能**
 - **LINE 電腦版**（安裝在 `%LOCALAPPDATA%\LINE` 的一般版，不是 Microsoft Store 版）
 - **Chrome、Edge 裡的所有網站**（Google、GitHub、ChatGPT……全部）
 
@@ -56,7 +56,8 @@ powershell -ExecutionPolicy Bypass -File 一鍵登出.ps1 -DryRun
 - 先刪 Claude Code 和 Codex 的登入檔，同時請瀏覽器和 VS Code 開始關閉。
 - Claude 桌面版被關掉後 1 秒內會自己重開並鎖住檔案，所以對它採取「強制結束、立刻清除、失敗就重試」的做法，最多 20 次。
 - Chrome / Edge 用 SQLite 直接清空每個設定檔的 cookie 資料表和瀏覽器帳號 token，其他資料表不動。
-- 六個步驟各自獨立，一步失敗不影響其他步驟。
+- VS Code 關掉後，從 `state.vscdb`（和它的備份檔）刪掉 `secret://` 開頭的資料，也就是 VS Code 和擴充功能存的帳號 token。
+- 七個步驟各自獨立，一步失敗不影響其他步驟。
 - 開始時會用 WMI 另外啟動一個備援程序；主程序中途被關掉的話，備援程序會接手沒做完的步驟。
 - 結果視窗放在 `finally` 裡，不管中途發生什麼事都會顯示。視窗本身出錯時會退回 Windows 內建的訊息框。
 

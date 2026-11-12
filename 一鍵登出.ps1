@@ -1,11 +1,11 @@
-﻿# 一鍵登出：Claude 桌面版、Claude Code、VS Code 的 Codex、LINE、Chrome / Edge 裡的所有網站
+﻿# 一鍵登出：Claude 桌面版、Claude Code、VS Code（含 Codex 擴充功能）、LINE、Chrome / Edge 裡的所有網站
 # 只會關閉這幾個程式，並刪除「登入用的 cookie / token」。不會刪書籤、歷史紀錄、密碼、LINE 聊天紀錄，也不會改系統設定。
 #
 # 用法：
 #   一鍵登出.ps1                    正式執行（會先跳出確認視窗）
 #   一鍵登出.ps1 -DryRun            演練：不關程式、不刪任何東西，只回報「會刪掉什麼」
 #   一鍵登出.ps1 -TestRoot <資料夾>  測試：只對該資料夾裡的假資料動手，不關程式、不碰真正的登入資料
-#   一鍵登出.ps1 -Theme 可愛        用粉色像素風的視窗（預設是經典色；「建立桌面捷徑」會記住你選的風格）
+#   一鍵登出.ps1 -Theme 可愛        用可愛風（草莓牛奶版）的視窗（預設是經典色；「建立桌面捷徑」會記住你選的風格）
 param([switch]$DryRun, [switch]$Yes, [string]$TestRoot, [int]$WatchPid, [string]$Theme)
 
 Add-Type -AssemblyName System.Windows.Forms, PresentationFramework, PresentationCore, WindowsBase
@@ -38,7 +38,7 @@ function Show-Box($text, $buttons = 'OK', $icon = 'Information') {
 }
 
 # ---- 風格 ----
-# 兩種視窗外觀：經典（Windows 11 風格）、可愛（粉色像素風）。
+# 兩種視窗外觀：經典（Windows 11 風格）、可愛（草莓牛奶版）。
 # 順序：參數 > 同資料夾的「主題.txt」（建立桌面捷徑時寫入）> 經典
 $ThemeFile = Join-Path $PSScriptRoot '主題.txt'
 if (-not $Theme) { try { $Theme = (Get-Content -LiteralPath $ThemeFile -Encoding UTF8 -ErrorAction Stop | Select-Object -First 1).Trim() } catch {} }
@@ -128,7 +128,7 @@ function New-Dialog($head, $intro, [string[]]$items, $note, $okText, $cancelText
     return $win
 }
 
-# ---- 可愛：粉色像素風視窗 ----
+# ---- 可愛：草莓牛奶版視窗 ----
 # 字型用「素材」資料夾裡的粉圓體（不用安裝），找不到就用微軟正黑體
 $FontDir = Join-Path $PSScriptRoot '素材'
 
@@ -353,7 +353,8 @@ function Invoke-WithRetry([string[]]$procs, [scriptblock]$body) {
 }
 
 # 執行一個步驟並記下結果。上一個程序已經做完的步驟會跳過
-function Step($key, $label, [scriptblock]$body) {
+function Step($key, [scriptblock]$body) {
+    $label = $StepNames[$key]
     if ($State.ContainsKey($key)) { $Results[$key] = $State[$key]; return }
     try { $msg = "${label}：$(& $body)"; $ok = $true }
     catch {
@@ -410,7 +411,19 @@ function Clear-Line {
     return $Done
 }
 
-$ClaudeTokenKeys = 'oauth:tokenCache', 'oauth:tokenCacheV2', 'lastKnownAccountUuid'
+# VS Code 自己登入的帳號（GitHub、微軟……）和擴充功能存的密碼，都放在 state.vscdb 裡 secret:// 開頭的資料。
+# VS Code 關閉時會把記憶體裡的資料寫回去，所以一定要等它關掉再刪。備份檔也一起清，免得被還原回來
+function Clear-VSCode {
+    $db = "$Roaming\Code\User\globalStorage\state.vscdb"
+    if (-not (Test-Path -LiteralPath $db)) { return '沒有安裝' }
+    $sql = "DELETE FROM ItemTable WHERE key LIKE 'secret://%'"
+    $n = Invoke-Sql $db $sql
+    if (Test-Path -LiteralPath "$db.backup") { $null = Invoke-Sql "$db.backup" $sql }
+    if (-not $n) { return '本來就沒登入' }
+    return "$Done（$n 個帳號資料）"
+}
+
+$ClaudeTokenKeys ='oauth:tokenCache', 'oauth:tokenCacheV2', 'lastKnownAccountUuid'
 function Clear-ClaudeDesktop {
     $roots = @(Get-ChildItem -LiteralPath "$Local\Claude-Data" -Directory -ErrorAction SilentlyContinue) +
              @(Get-Item -LiteralPath "$Roaming\Claude" -ErrorAction SilentlyContinue) | Where-Object { $_ }
@@ -461,18 +474,18 @@ if ($WatchPid) {
 
 # ---- 0. 確認 ----
 if ($Live -and -not $Yes -and -not $Resumed) {
-    $what = 'Claude 桌面版 / Claude Code', 'VS Code 的 Codex', 'LINE',
-            'Chrome、Edge 裡的所有網站（Google、GitHub、ChatGPT……）'
-    # 兩種風格的文案不同：可愛風說得比較輕，也不放最下面那句提醒
-    $ok = if ($Theme -eq '可愛') {
-        $what = 'Claude 桌面版', 'VS Code 的 Codex', 'LINE', 'Chrome、Edge 裡的所有網站'
-        Show-Dialog '要登出了嗎？' '會先關掉 Chrome、Edge、Claude、VS Code、LINE' $what '' '登出' '先不要' '大約需要 5 秒'
-    } else {
-        Show-Dialog '要登出了嗎？' '會關閉 Chrome、Edge、Claude、VS Code、LINE，並登出：' $what `
-            '等出現「登出完成」再重新打開這些程式' '登出' '先不要' '大約需要 5 秒'
-    }
+    # 兩種風格共用同一套文字，只有外觀不同
+    $what = 'Claude 桌面版 / Claude Code', 'VS Code（含擴充功能）', 'LINE', 'Chrome、Edge 裡的所有網站'
+    $ok = Show-Dialog '要登出了嗎？' '會關閉 Chrome、Edge、Claude、VS Code、LINE，並登出：' $what '' '登出' '先不要' '大約需要 5 秒'
     if (-not $ok) { exit }
 }
+
+# 所有步驟，依執行順序。結果視窗也照這個順序列
+$StepNames = [ordered]@{
+    codex = 'Codex（VS Code）'; claudecode = 'Claude Code'; claude = 'Claude 桌面版'; line = 'LINE'
+    vscode = 'VS Code 帳號'; chrome = 'Chrome'; edge = 'Edge'
+}
+$BackupPid = $null
 
 Log "==== 開始（演練=$DryRun 測試=$([bool]$TestRoot) 接手=$Resumed）===="
 
@@ -484,61 +497,64 @@ try {
         $cmd = "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$PSCommandPath`" -WatchPid $PID -Theme $Theme"
         $r = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = $cmd }
         Log "備援程序：代碼 $($r.ReturnValue)，PID $($r.ProcessId)"
+        if ($r.ReturnValue -eq 0) { $BackupPid = $r.ProcessId }
     }
 
     $codexFile  = "$HomeDir\.codex\auth.json"
     $claudeFile = "$HomeDir\.claude\.credentials.json"
 
     # ---- 1. 最快的先做：刪登入檔，並請瀏覽器和 VS Code 開始關閉 ----
-    Step 'codex'      'Codex（VS Code）' { Remove-LoginFile $codexFile }
-    Step 'claudecode' 'Claude Code'      { Remove-LoginFile $claudeFile }
+    Step 'codex'      { Remove-LoginFile $codexFile }
+    Step 'claudecode' { Remove-LoginFile $claudeFile }
     Request-Close 'Code', 'chrome', 'msedge'
 
     # ---- 2. Claude 桌面版：直接強制結束，緊接著清除（它正常關閉要 7 秒，而且會自己重開）----
-    Step 'claude' 'Claude 桌面版' {
+    Step 'claude' {
         Stop-Now 'claude'
         Invoke-WithRetry 'claude' { Clear-ClaudeDesktop }
     }
 
     # ---- 3. LINE：關閉時只會縮到右下角，所以直接強制結束 ----
-    Step 'line' 'LINE' {
+    Step 'line' {
         Stop-Now $LineProcs
         Invoke-WithRetry $LineProcs { Clear-Line }
     }
 
-    # ---- 4. VS Code：關掉後再刪一次登入檔，避免它在關閉前把 token 寫回去 ----
+    # ---- 4. VS Code：關掉後再刪一次登入檔，避免它在關閉前把 token 寫回去；再登出 VS Code 本身的帳號 ----
     Stop-Now 'Code', 'codex' 2000
     foreach ($f in $codexFile, $claudeFile) {
         if ($Change -and (Test-Path -LiteralPath $f)) { Remove-Item -LiteralPath $f -Force -ErrorAction SilentlyContinue; Log "再次刪除 $f" }
     }
+    Step 'vscode' { Invoke-WithRetry 'Code' { Clear-VSCode } }
 
     # ---- 5. Chrome / Edge：刪掉所有網站的 cookie ----
-    Step 'chrome' 'Chrome' { Stop-Now 'chrome' 1500; Clear-Browser "$Local\Google\Chrome\User Data" 'chrome' }
-    Step 'edge'   'Edge'   { Stop-Now 'msedge' 1500; Clear-Browser "$Local\Microsoft\Edge\User Data" 'msedge' }
+    Step 'chrome' { Stop-Now 'chrome' 1500; Clear-Browser "$Local\Google\Chrome\User Data" 'chrome' }
+    Step 'edge'   { Stop-Now 'msedge' 1500; Clear-Browser "$Local\Microsoft\Edge\User Data" 'msedge' }
 
     if ($Change) { Add-Content -LiteralPath $StateFile -Value 'DONE' -Encoding UTF8 }
 }
 finally {
     # ---- 6. 結果：不管中途發生什麼事都要顯示 ----
-    $failed = @($Results.Values | Where-Object { $_ -match '失敗' }).Count
-    $missing = 6 - $Results.Count   # 共 6 個步驟，少了代表中途停掉
+    # 中途停掉、還有步驟沒做：先不跳結果，直接結束讓備援程序接手重做
+    $missing = @($StepNames.Keys | Where-Object { -not $Results.Contains($_) })
+    if ($missing -and $BackupPid -and (Get-Process -Id $BackupPid -ErrorAction SilentlyContinue)) {
+        Log "還有 $($missing.Count) 個步驟沒做，交給備援程序重做"
+        exit 1
+    }
+    # 重做之後還是沒做到的，就當作失敗
+    foreach ($k in $missing) { $Results[$k] = "$($StepNames[$k])：失敗（沒做完）" }
+    $failed = @($Results.Values | Where-Object { $_ -match '失敗' })
     $head, $sub = if ($DryRun) { '演練模式', '沒有真的刪除任何東西' }
                   elseif ($TestRoot) { '測試模式', '只動了測試資料夾' }
-                  elseif ($failed -or $missing -gt 0) { '有些沒登出成功', '請看上面哪一項寫著「失敗」' }
-                  else { '登出完成！', '現在可以重新打開程式了' }
+                  elseif ($failed) { '需要手動登出QQ', '' }
+                  else { '登出完成！', '' }
     $title = "$head$sub"
     $text = $title + "`n`n" + ($Results.Values -join "`n")
     Log "==== 結束：$title ===="
     Write-Output $text
     if (-not $Yes -and -not $TestRoot) {
-        $intro = ''
-        if ($Theme -eq '可愛') {
-            # 可愛風：大標題下面一行輕鬆的副標
-            $head, $intro, $sub = if ($DryRun) { '演練模式', '沒有真的刪除任何東西', '' }
-                                  elseif ($failed) { '有些沒登出成功', '打叉的那項要自己登出一下', '' }
-                                  elseif ($missing -gt 0) { '有些還沒做完', '再按一次一鍵登出就好', '' }
-                                  else { '都登出囉！', '下課愉快', '現在可以重新打開程式了' }
-        }
-        Show-Dialog $head $intro @($Results.Values) $sub '好' | Out-Null
+        # 有失敗時只列要自己登出的那幾項，其他成功的不列
+        $shown = if ($failed -and -not $DryRun) { $failed } else { @($Results.Values) }
+        Show-Dialog $head '' $shown $sub '好' | Out-Null
     }
 }
