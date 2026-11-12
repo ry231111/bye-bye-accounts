@@ -51,7 +51,7 @@ powershell -ExecutionPolicy Bypass -File 一鍵登出.ps1 -DryRun
 
 執行紀錄在 `%TEMP%\一鍵登出-紀錄.txt`，每一步的結果和重試次數都在裡面。
 
-想多登出其他程式？把 [給AI的提示詞.md](給AI的提示詞.md) 裡的那段貼給你的 AI 助理，請它照現有做法加上去。
+想多登出其他程式？把 [給AI的提示詞.md](給AI的提示詞.md) 裡的那段貼給你的 AI Agent，請他照現有做法加上去。
 
 ## 運作方式
 
