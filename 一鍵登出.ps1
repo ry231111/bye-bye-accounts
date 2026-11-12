@@ -159,7 +159,9 @@ $CuteXaml = @'
         <TextBlock x:Name="Head" FontSize="24"/>
         <TextBlock x:Name="Intro" FontSize="13.5" Foreground="#8A5E70" TextWrapping="Wrap" Margin="0,4,0,0"/>
         <Border Background="White" BorderBrush="#F2C9D8" BorderThickness="2" Padding="12,8" Margin="0,16,0,0">
-          <StackPanel x:Name="Items"/>
+          <ScrollViewer x:Name="ItemsScroll" VerticalScrollBarVisibility="Auto">
+            <StackPanel x:Name="Items"/>
+          </ScrollViewer>
         </Border>
         <TextBlock x:Name="Note" FontSize="13.5" Foreground="#8A5E70" TextWrapping="Wrap" Margin="0,10,0,0"/>
         <DockPanel Margin="0,16,0,0" LastChildFill="False">
@@ -231,6 +233,8 @@ function New-CuteWindow($head, $intro, [string[]]$items, $note, $okText, $cancel
     }
     # 清單：失敗的打紅叉，登出了的打粉勾（只留名稱），其他（確認視窗的項目、演練模式）用粉色小方塊
     $list = $win.FindName('Items')
+    # 失敗的項目會帶錯誤訊息，太多時清單改成可以捲，視窗才不會超出螢幕（上下其他部分約佔 260）
+    $win.FindName('ItemsScroll').MaxHeight = [Math]::Max(150, [Math]::Min(320, [Windows.SystemParameters]::WorkArea.Height - 260))
     foreach ($i in $items) {
         $row = New-Object Windows.Controls.DockPanel
         $row.Margin = '0,4,0,4'
@@ -461,6 +465,7 @@ if ($Live -and -not $Yes -and -not $Resumed) {
             'Chrome、Edge 裡的所有網站（Google、GitHub、ChatGPT……）'
     # 兩種風格的文案不同：可愛風說得比較輕，也不放最下面那句提醒
     $ok = if ($Theme -eq '可愛') {
+        $what = 'Claude 桌面版', 'VS Code 的 Codex', 'LINE', 'Chrome、Edge 裡的所有網站'
         Show-Dialog '要登出了嗎？' '會先關掉 Chrome、Edge、Claude、VS Code、LINE' $what '' '登出' '先不要' '大約需要 5 秒'
     } else {
         Show-Dialog '要登出了嗎？' '會關閉 Chrome、Edge、Claude、VS Code、LINE，並登出：' $what `
