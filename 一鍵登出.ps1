@@ -413,14 +413,27 @@ function Clear-Line {
 
 # VS Code 自己登入的帳號（GitHub、微軟……）和擴充功能存的密碼，都放在 state.vscdb 裡 secret:// 開頭的資料。
 # VS Code 關閉時會把記憶體裡的資料寫回去，所以一定要等它關掉再刪。備份檔也一起清，免得被還原回來
+# publicClients-* 是微軟登入元件的設定，VS Code 每次開都會寫，沒登入也有，所以不算帳號（只算帳號的話，演練才不會一直說「是登入狀態」）
 function Clear-VSCode {
     $db = "$Roaming\Code\User\globalStorage\state.vscdb"
     if (-not (Test-Path -LiteralPath $db)) { return '沒有安裝' }
+    $n = Invoke-Sql $db "DELETE FROM ItemTable WHERE key LIKE 'secret://%' AND key NOT LIKE '%publicClients-%'"
     $sql = "DELETE FROM ItemTable WHERE key LIKE 'secret://%'"
-    $n = Invoke-Sql $db $sql
+    $null = Invoke-Sql $db $sql
     if (Test-Path -LiteralPath "$db.backup") { $null = Invoke-Sql "$db.backup" $sql }
-    if (-not $n) { return '本來就沒登入' }
-    return "$Done（$n 個帳號資料）"
+    $git = Clear-GitCredential
+    if (-not $n -and -not $git) { return '本來就沒登入' }
+    $parts = @(if ($n) { "$n 個帳號資料" }) + @(if ($git) { "$git 個 Git 的 GitHub 帳號" })
+    return "$Done（$($parts -join '、')）"
+}
+
+# VS Code 裡 push / pull 用的 GitHub 帳號，是 Git 存在 Windows 認證管理員裡（git:https://github.com），不在 VS Code 的資料裡。
+# 不刪的話，就算 VS Code 帳號登出了，原始檔控制還是用上一個人的帳號。cmdkey 的輸出在中文 Windows 也是 target=...
+function Clear-GitCredential {
+    if ($TestRoot) { return 0 }   # 測試模式不碰真正的認證管理員
+    $targets = @(cmdkey /list | ForEach-Object { if ($_ -match 'target=(git:https?://\S*github\.com\S*)') { $Matches[1] } })
+    if ($Change) { foreach ($t in $targets) { $null = cmdkey "/delete:$t" } }
+    return $targets.Count
 }
 
 $ClaudeTokenKeys ='oauth:tokenCache', 'oauth:tokenCacheV2', 'lastKnownAccountUuid'
