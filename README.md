@@ -51,6 +51,8 @@ powershell -ExecutionPolicy Bypass -File 一鍵登出.ps1 -DryRun
 
 執行紀錄在 `%TEMP%\一鍵登出-紀錄.txt`，每一步的結果和重試次數都在裡面。
 
+想多登出其他程式？把 [給AI的提示詞.md](給AI的提示詞.md) 裡的那段貼給你的 AI 助理，請它照現有做法加上去。
+
 ## 運作方式
 
 - 先刪 Claude Code 和 Codex 的登入檔，同時請瀏覽器和 VS Code 開始關閉。
@@ -79,6 +81,7 @@ Windows 10 / 11，內建的 Windows PowerShell 5.1 即可。
 | `一鍵登出.ps1` | 主程式，兩種風格都在裡面（UTF-8 含 BOM，改完請保留 BOM） |
 | `一鍵登出.cmd` | 直接雙擊執行用 |
 | `建立桌面捷徑.cmd` / `.ps1` | 選風格、在桌面建立捷徑 |
+| `給AI的提示詞.md` | 想加新的登出項目時，貼給 AI 助理的提示詞 |
 | `素材\` | 兩個圖示、兩張預覽圖、粉圓體 `Huninn-Regular.ttf` 和它的授權書 `OFL.txt` |
 | `主題.txt` | 你選的風格，由建立捷徑時寫入，不在倉庫裡 |
 
