@@ -1,2 +1,11 @@
 # 每個人自己選的風格，不進倉庫
 主題.txt
+
+# 自己用的筆記和工作檔，不上傳 GitHub（裡面有個人路徑）
+CLAUDE.md
+AGENTS.md
+交接筆記.md
+設計概念/
+ui-ux-pro-max-skill-main/
+素材/圖示候選/
+.claude/

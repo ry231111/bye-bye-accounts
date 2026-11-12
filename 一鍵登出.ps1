@@ -220,8 +220,8 @@ function New-CuteWindow($head, $intro, [string[]]$items, $note, $okText, $cancel
     $win = [Windows.Markup.XamlReader]::Parse($CuteXaml)
     try { $win.FontFamily = New-Object Windows.Media.FontFamily ([Uri]"$FontDir\"), './#Huninn, Microsoft JhengHei UI' }
     catch { $win.FontFamily = 'Microsoft JhengHei UI' }
-    # 工作列上的圖示，和捷徑同一顆關門鍵（視窗裡不畫圖示，標題就是純文字）
-    try { $win.Icon = [Windows.Media.Imaging.BitmapFrame]::Create([Uri](Join-Path $FontDir '關門鍵.ico')) } catch {}
+    # 工作列上的圖示，和捷徑同一顆莓果奶油磚（視窗裡不畫圖示，標題就是純文字）
+    try { $win.Icon = [Windows.Media.Imaging.BitmapFrame]::Create([Uri](Join-Path $FontDir '莓果.ico')) } catch {}
     if ($hint) {
         $win.FindName('Clock').Source = New-PixelImage $ClockRows $ClockColors
         $win.FindName('HintText').Text = $hint

@@ -10,7 +10,7 @@ $Root   = $PSScriptRoot
 $Assets = Join-Path $Root '素材'
 $Themes = [ordered]@{
     '經典' = @{ Title = '經典色'; Desc = 'Windows 11 風格，清爽俐落'; Icon = '經典圖示.ico'; Preview = '預覽-經典.png' }
-    '可愛' = @{ Title = '可愛粉'; Desc = '粉色像素風，粉圓體';       Icon = '關門鍵.ico';   Preview = '預覽-可愛.png' }
+    '可愛' = @{ Title = '可愛粉'; Desc = '粉色像素風，粉圓體';       Icon = '莓果.ico';     Preview = '預覽-可愛.png' }
 }
 
 $PickerXaml = @'
