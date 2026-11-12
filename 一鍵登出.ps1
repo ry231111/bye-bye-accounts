@@ -413,14 +413,19 @@ function Clear-Line {
 
 # VS Code 自己登入的帳號（GitHub、微軟……）和擴充功能存的密碼，都放在 state.vscdb 裡 secret:// 開頭的資料。
 # VS Code 關閉時會把記憶體裡的資料寫回去，所以一定要等它關掉再刪。備份檔也一起清，免得被還原回來
+# 新版 VS Code 把 GitHub 登入（github.auth）改存在跨 App 共用的 ~\.vscode-shared\sharedStorage\state.vscdb，兩個地方都要清。
 # publicClients-* 是微軟登入元件的設定，VS Code 每次開都會寫，沒登入也有，所以不算帳號（只算帳號的話，演練才不會一直說「是登入狀態」）
 function Clear-VSCode {
-    $db = "$Roaming\Code\User\globalStorage\state.vscdb"
-    if (-not (Test-Path -LiteralPath $db)) { return '沒有安裝' }
-    $n = Invoke-Sql $db "DELETE FROM ItemTable WHERE key LIKE 'secret://%' AND key NOT LIKE '%publicClients-%'"
+    $dbs = @("$Roaming\Code\User\globalStorage\state.vscdb", "$HomeDir\.vscode-shared\sharedStorage\state.vscdb") |
+           Where-Object { Test-Path -LiteralPath $_ }
+    if (-not $dbs) { return '沒有安裝' }
     $sql = "DELETE FROM ItemTable WHERE key LIKE 'secret://%'"
-    $null = Invoke-Sql $db $sql
-    if (Test-Path -LiteralPath "$db.backup") { $null = Invoke-Sql "$db.backup" $sql }
+    $n = 0
+    foreach ($db in $dbs) {
+        $n += Invoke-Sql $db "$sql AND key NOT LIKE '%publicClients-%'"
+        $null = Invoke-Sql $db $sql
+        if (Test-Path -LiteralPath "$db.backup") { $null = Invoke-Sql "$db.backup" $sql }
+    }
     $git = Clear-GitCredential
     if (-not $n -and -not $git) { return '本來就沒登入' }
     $parts = @(if ($n) { "$n 個帳號資料" }) + @(if ($git) { "$git 個 Git 的 GitHub 帳號" })
