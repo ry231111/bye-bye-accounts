@@ -5,7 +5,8 @@
 #   一鍵登出.ps1                    正式執行（會先跳出確認視窗）
 #   一鍵登出.ps1 -DryRun            演練：不關程式、不刪任何東西，只回報「會刪掉什麼」
 #   一鍵登出.ps1 -TestRoot <資料夾>  測試：只對該資料夾裡的假資料動手，不關程式、不碰真正的登入資料
-param([switch]$DryRun, [switch]$Yes, [string]$TestRoot, [int]$WatchPid)
+#   一鍵登出.ps1 -Theme 可愛        用粉色像素風的視窗（預設是經典色；「建立桌面捷徑」會記住你選的風格）
+param([switch]$DryRun, [switch]$Yes, [string]$TestRoot, [int]$WatchPid, [string]$Theme)
 
 Add-Type -AssemblyName System.Windows.Forms, PresentationFramework, PresentationCore, WindowsBase
 
@@ -36,8 +37,15 @@ function Show-Box($text, $buttons = 'OK', $icon = 'Information') {
         'Button1', 'DefaultDesktopOnly')
 }
 
-# ---- 對話視窗（Windows 11 風格）----
-# 只用系統內建字型，不需要額外檔案
+# ---- 風格 ----
+# 兩種視窗外觀：經典（Windows 11 風格）、可愛（粉色像素風）。
+# 順序：參數 > 同資料夾的「主題.txt」（建立桌面捷徑時寫入）> 經典
+$ThemeFile = Join-Path $PSScriptRoot '主題.txt'
+if (-not $Theme) { try { $Theme = (Get-Content -LiteralPath $ThemeFile -Encoding UTF8 -ErrorAction Stop | Select-Object -First 1).Trim() } catch {} }
+if ($Theme -notin '經典', '可愛') { $Theme = '經典' }
+
+# ---- 經典：Windows 11 風格視窗 ----
+# 只用系統內建字型
 $DialogXaml = @'
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
@@ -77,22 +85,26 @@ $DialogXaml = @'
       <TextBlock x:Name="Intro" FontSize="14" LineHeight="22" TextWrapping="Wrap" Margin="0,0,0,8"/>
       <StackPanel x:Name="Items" Margin="2,0,0,8"/>
       <TextBlock x:Name="Note" FontSize="13" LineHeight="20" Foreground="#6E6E6E" TextWrapping="Wrap" Margin="0,8,0,0"/>
-      <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,24,0,0">
-        <Button x:Name="No" Template="{StaticResource FlatButton}" Background="#FFFFFF" Tag="#F5F5F5" BorderBrush="#D6D6D6"
-                Foreground="#1B1B1B" FontSize="14" IsCancel="True" Margin="0,0,8,0"/>
-        <Button x:Name="Yes" Template="{StaticResource FlatButton}" Background="#0067C0" Tag="#1975C5" BorderBrush="#0067C0"
-                Foreground="#FFFFFF" FontSize="14" FontWeight="SemiBold" IsDefault="True"/>
-      </StackPanel>
+      <DockPanel Margin="0,24,0,0" LastChildFill="False">
+        <TextBlock x:Name="HintText" DockPanel.Dock="Left" FontSize="13" Foreground="#6E6E6E" VerticalAlignment="Center"/>
+        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+          <Button x:Name="No" Template="{StaticResource FlatButton}" Background="#FFFFFF" Tag="#F5F5F5" BorderBrush="#D6D6D6"
+                  Foreground="#1B1B1B" FontSize="14" IsCancel="True" Margin="0,0,8,0"/>
+          <Button x:Name="Yes" Template="{StaticResource FlatButton}" Background="#0067C0" Tag="#1975C5" BorderBrush="#0067C0"
+                  Foreground="#FFFFFF" FontSize="14" FontWeight="SemiBold" IsDefault="True"/>
+        </StackPanel>
+      </DockPanel>
     </StackPanel>
   </Border>
 </Window>
 '@
 
-function New-Dialog($head, $intro, [string[]]$items, $note, $okText, $cancelText) {
+# $hint 會放在按鈕左邊
+function New-Dialog($head, $intro, [string[]]$items, $note, $okText, $cancelText, $hint) {
     $win = [Windows.Markup.XamlReader]::Parse($DialogXaml)
-    try { $win.Icon = [Windows.Media.Imaging.BitmapFrame]::Create([Uri](Join-Path $PSScriptRoot '圖示\一鍵登出.ico')) } catch {}   # 工作列和 Alt-Tab 用的圖示，沒有也沒關係
+    try { $win.Icon = [Windows.Media.Imaging.BitmapFrame]::Create([Uri](Join-Path $PSScriptRoot '素材\經典圖示.ico')) } catch {}   # 工作列和 Alt-Tab 用的圖示
     $win.FindName('Head').Text = $head
-    foreach ($pair in @(@('Intro', $intro), @('Note', $note))) {
+    foreach ($pair in @(@('Intro', $intro), @('Note', $note), @('HintText', $hint))) {
         $tb = $win.FindName($pair[0])
         if ($pair[1]) { $tb.Text = $pair[1] } else { $tb.Visibility = 'Collapsed' }
     }
@@ -116,15 +128,155 @@ function New-Dialog($head, $intro, [string[]]$items, $note, $okText, $cancelText
     return $win
 }
 
-# 按下 okText 回傳 $true。對話視窗出錯時改用一般的 Windows 視窗，確保一定看得到
-function Show-Dialog($head, $intro, [string[]]$items, $note, $okText = '好', $cancelText) {
+# ---- 可愛：粉色像素風視窗 ----
+# 字型用「素材」資料夾裡的粉圓體（不用安裝），找不到就用微軟正黑體
+$FontDir = Join-Path $PSScriptRoot '素材'
+
+$CuteXaml = @'
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="一鍵登出" WindowStyle="None" AllowsTransparency="True" Background="Transparent"
+        ResizeMode="NoResize" SizeToContent="WidthAndHeight" WindowStartupLocation="CenterScreen"
+        Topmost="True" UseLayoutRounding="True" SnapsToDevicePixels="True">
+  <Window.Resources>
+    <ControlTemplate x:Key="PixelButton" TargetType="Button">
+      <Border x:Name="Face" Background="{TemplateBinding Background}" BorderBrush="#3B1E2B" BorderThickness="3">
+        <Border x:Name="Shade" BorderBrush="{Binding Tag, RelativeSource={RelativeSource TemplatedParent}}"
+                BorderThickness="0,0,3,3" Padding="18,5,15,4">
+          <ContentPresenter HorizontalAlignment="Center"/>
+        </Border>
+      </Border>
+      <ControlTemplate.Triggers>
+        <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Face" Property="BorderBrush" Value="#FF5FA2"/></Trigger>
+        <Trigger Property="IsPressed" Value="True"><Setter TargetName="Shade" Property="BorderThickness" Value="3,3,0,0"/></Trigger>
+      </ControlTemplate.Triggers>
+    </ControlTemplate>
+  </Window.Resources>
+  <Border Background="#FFE6F1" BorderBrush="#3B1E2B" BorderThickness="4" Padding="6" TextElement.Foreground="#3B1E2B">
+    <Border BorderBrush="White" BorderThickness="3" Padding="20,16">
+      <StackPanel Width="360">
+        <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
+          <Image x:Name="Logo" Width="32" Height="32" Margin="0,0,10,0" VerticalAlignment="Center" RenderOptions.EdgeMode="Aliased"/>
+          <TextBlock x:Name="Head" FontSize="21" VerticalAlignment="Center"/>
+        </StackPanel>
+        <TextBlock x:Name="Intro" FontSize="14" TextWrapping="Wrap" Margin="0,0,0,6"/>
+        <StackPanel x:Name="Items" Margin="4,0,0,6"/>
+        <TextBlock x:Name="Note" FontSize="13" TextWrapping="Wrap" Margin="0,4,0,0"/>
+        <DockPanel Margin="0,18,0,0" LastChildFill="False">
+          <StackPanel x:Name="Hint" DockPanel.Dock="Left" Orientation="Horizontal" VerticalAlignment="Center">
+            <Image x:Name="Clock" Width="18" Height="18" Margin="0,0,6,0" VerticalAlignment="Center" RenderOptions.EdgeMode="Aliased"/>
+            <TextBlock x:Name="HintText" FontSize="14" Foreground="#7A4A5E" VerticalAlignment="Center"/>
+          </StackPanel>
+          <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+            <Button x:Name="No" Template="{StaticResource PixelButton}" Background="White" Tag="#D9C3CD"
+                    Foreground="#3B1E2B" FontSize="15" IsCancel="True" Margin="0,0,12,0"/>
+            <Button x:Name="Yes" Template="{StaticResource PixelButton}" Background="#FF5FA2" Tag="#C7357A"
+                    Foreground="White" FontSize="15" IsDefault="True"/>
+          </StackPanel>
+        </DockPanel>
+      </StackPanel>
+    </Border>
+  </Border>
+</Window>
+'@
+
+# 像素電梯關門鍵 ▶|◀，和捷徑圖示同一張。每個字母是一格的顏色
+$LogoRows = @(
+    '.....KKKKKK.....',
+    '...KKPPPPPPKK...',
+    '..KPWWPPPPPPPK..',
+    '.KPWPPPPPPPPPSK.',
+    '.KPPPPPPPPPPPSK.',
+    'KPPWPPPWWPPPWPSK',
+    'KPPWWPPWWPPWWPSK',
+    'KPPWWWPWWPWWWPSK',
+    'KPPWWWPWWPWWWPSK',
+    'KPPWWPPWWPPWWPSK',
+    'KPPWPPPWWPPPWPSK',
+    'KPPPPPPPPPPPPPSK',
+    '.KPPPPPPPPPPPSK.',
+    '..KPPPPPPPPPSK..',
+    '...KKSSSSSSKK...',
+    '.....KKKKKK.....'
+)
+$LogoColors = @{ K = '#3B1E2B'; P = '#FF5FA2'; S = '#C7357A'; W = '#FFFFFF' }
+
+# 按鈕左邊「大約需要5秒」前面的像素小時鐘
+$ClockRows = @(
+    '..KKKKK..',
+    '.KLLLLLK.',
+    'KLLLKLLLK',
+    'KLLLKLLLK',
+    'KLLLKKKLK',
+    'KLLLLLLLK',
+    'KLLLLLLLK',
+    '.KLLLLLK.',
+    '..KKKKK..'
+)
+$ClockColors = @{ K = '#3B1E2B'; L = '#FFC8DD' }
+
+function New-PixelImage([string[]]$rows, $colors) {
+    $group = New-Object Windows.Media.DrawingGroup
+    foreach ($c in $colors.Keys) {
+        $geo = New-Object Windows.Media.GeometryGroup
+        for ($y = 0; $y -lt $rows.Count; $y++) {
+            for ($x = 0; $x -lt $rows[$y].Length; $x++) {
+                if ([string]$rows[$y][$x] -eq $c) { $geo.Children.Add([Windows.Media.RectangleGeometry]::new([Windows.Rect]::new($x, $y, 1, 1))) }
+            }
+        }
+        $brush = [Windows.Media.BrushConverter]::new().ConvertFrom($colors[$c])
+        $group.Children.Add([Windows.Media.GeometryDrawing]::new($brush, $null, $geo))
+    }
+    return [Windows.Media.DrawingImage]::new($group)
+}
+
+# $hint 會放在按鈕左邊，前面有小時鐘
+function New-CuteWindow($head, $intro, [string[]]$items, $note, $okText, $cancelText, $hint) {
+    $win = [Windows.Markup.XamlReader]::Parse($CuteXaml)
+    try { $win.FontFamily = New-Object Windows.Media.FontFamily ([Uri]"$FontDir\"), './#Huninn, Microsoft JhengHei UI' }
+    catch { $win.FontFamily = 'Microsoft JhengHei UI' }
+    # 工作列上的圖示，和捷徑同一顆愛心
+    try { $win.Icon = [Windows.Media.Imaging.BitmapFrame]::Create([Uri](Join-Path $FontDir '關門鍵.ico')) } catch {}
+    $win.FindName('Logo').Source = New-PixelImage $LogoRows $LogoColors
+    if ($hint) {
+        $win.FindName('Clock').Source = New-PixelImage $ClockRows $ClockColors
+        $win.FindName('HintText').Text = $hint
+    } else { $win.FindName('Hint').Visibility = 'Collapsed' }
+    $win.FindName('Head').Text = $head
+    foreach ($pair in @(@('Intro', $intro), @('Note', $note))) {
+        $tb = $win.FindName($pair[0])
+        if ($pair[1]) { $tb.Text = $pair[1] } else { $tb.Visibility = 'Collapsed' }
+    }
+    # 清單：每項前面一個粉色小方塊
+    $list = $win.FindName('Items')
+    foreach ($i in $items) {
+        $row = New-Object Windows.Controls.DockPanel
+        $row.Margin = '0,3,0,0'
+        $dot = New-Object Windows.Shapes.Rectangle -Property @{ Width = 6; Height = 6; Fill = '#FF5FA2'; Margin = '0,7,10,0'; VerticalAlignment = 'Top' }
+        $text = New-Object Windows.Controls.TextBlock -Property @{ Text = $i; FontSize = 14; TextWrapping = 'Wrap' }
+        $null = $row.Children.Add($dot); $null = $row.Children.Add($text)
+        $null = $list.Children.Add($row)
+    }
+    $okBtn = $win.FindName('Yes'); $noBtn = $win.FindName('No')
+    $okBtn.Content = $okText
+    if ($cancelText) { $noBtn.Content = $cancelText } else { $noBtn.Visibility = 'Collapsed'; $okBtn.IsCancel = $true }
+    $okBtn.add_Click({ $w = [Windows.Window]::GetWindow($this); $w.Tag = $true; $w.Close() })
+    $noBtn.add_Click({ [Windows.Window]::GetWindow($this).Close() })
+    $win.add_MouseLeftButtonDown({ $this.DragMove() })   # 沒有標題列，按住任何地方都能拖
+    $win.add_Loaded({ $this.Activate() })
+    return $win
+}
+
+# 按下 okText 回傳 $true。依風格選視窗；視窗出錯時改用一般的 Windows 視窗，確保一定看得到
+function Show-Dialog($head, $intro, [string[]]$items, $note, $okText = '好', $cancelText, $hint) {
     try {
-        $win = New-Dialog $head $intro $items $note $okText $cancelText
+        $win = if ($Theme -eq '可愛') { New-CuteWindow $head $intro $items $note $okText $cancelText $hint }
+               else { New-Dialog $head $intro $items $note $okText $cancelText $hint }
         $null = $win.ShowDialog()
         return [bool]$win.Tag
     } catch {
-        Log "對話視窗失敗，改用一般視窗：$($_.Exception.Message)"
-        $text = (@($head, $intro) + @($items | ForEach-Object { "• $_" }) + @($note) | Where-Object { $_ }) -join "`n"
+        Log "視窗失敗（$Theme），改用一般視窗：$($_.Exception.Message)"
+        $text = (@($head, $intro) + @($items | ForEach-Object { "• $_" }) + @($note, $hint) | Where-Object { $_ }) -join "`n"
         $buttons = if ($cancelText) { 'YesNo' } else { 'OK' }
         return (Show-Box $text $buttons) -in 'Yes', 'OK'
     }
@@ -314,7 +466,7 @@ if ($Live -and -not $Yes -and -not $Resumed) {
     $ok = Show-Dialog '要登出了嗎？' '會關閉 Chrome、Edge、Claude、VS Code、LINE，並登出：' @(
         'Claude 桌面版 / Claude Code', 'VS Code 的 Codex', 'LINE',
         'Chrome、Edge 裡的所有網站（Google、GitHub、ChatGPT……）') `
-        '等出現「登出完成」再重新打開這些程式（大約 5 秒）' '登出' '先不要'
+        '等出現「登出完成」再重新打開這些程式' '登出' '先不要' '大約需要 5 秒'
     if (-not $ok) { exit }
 }
 
@@ -325,7 +477,7 @@ try {
 
     # 啟動備援程序。它由 Windows 的 WMI 服務啟動，不屬於 Claude 或 VS Code，關掉它們時不會被連帶關掉
     if ($Live -and -not $Resumed) {
-        $cmd = "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$PSCommandPath`" -WatchPid $PID"
+        $cmd = "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$PSCommandPath`" -WatchPid $PID -Theme $Theme"
         $r = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = $cmd }
         Log "備援程序：代碼 $($r.ReturnValue)，PID $($r.ProcessId)"
     }
