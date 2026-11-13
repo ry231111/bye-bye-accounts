@@ -82,7 +82,7 @@ $DialogXaml = @'
         </Border>
         <TextBlock x:Name="Head" FontSize="20" FontWeight="SemiBold" VerticalAlignment="Center"/>
       </StackPanel>
-      <TextBlock x:Name="Intro" FontSize="14" LineHeight="22" TextWrapping="Wrap" Margin="0,0,0,8"/>
+      <TextBlock x:Name="Intro" FontSize="13" LineHeight="20" Foreground="#6E6E6E" TextWrapping="Wrap" Margin="0,-6,0,12"/>
       <StackPanel x:Name="Items" Margin="2,0,0,8"/>
       <TextBlock x:Name="Note" FontSize="13" LineHeight="20" Foreground="#6E6E6E" TextWrapping="Wrap" Margin="0,8,0,0"/>
       <DockPanel Margin="0,24,0,0" LastChildFill="False">
@@ -99,8 +99,14 @@ $DialogXaml = @'
 </Window>
 '@
 
+# 清單項目可以是文字（小圓點），或 @{ Text; Mark = 'check' | 'cross' | 'dot' }
+function Get-ItemParts($i) {
+    if ($i -is [string]) { return $i, 'dot' }
+    return $i.Text, $i.Mark
+}
+
 # $hint 會放在按鈕左邊
-function New-Dialog($head, $intro, [string[]]$items, $note, $okText, $cancelText, $hint) {
+function New-Dialog($head, $intro, [object[]]$items, $note, $okText, $cancelText, $hint) {
     $win = [Windows.Markup.XamlReader]::Parse($DialogXaml)
     try { $win.Icon = [Windows.Media.Imaging.BitmapFrame]::Create([Uri](Join-Path $PSScriptRoot '素材\經典圖示.ico')) } catch {}   # 工作列和 Alt-Tab 用的圖示
     $win.FindName('Head').Text = $head
@@ -108,14 +114,25 @@ function New-Dialog($head, $intro, [string[]]$items, $note, $okText, $cancelText
         $tb = $win.FindName($pair[0])
         if ($pair[1]) { $tb.Text = $pair[1] } else { $tb.Visibility = 'Collapsed' }
     }
-    # 清單：每項前面一個藍色小圓點
+    # 清單：登出了的打藍勾，失敗的打紅叉（紅字），其他（確認視窗的項目、演練模式）用藍色小圓點
     $list = $win.FindName('Items')
+    if (-not $items) { $list.Visibility = 'Collapsed' }
     foreach ($i in $items) {
+        $t, $m = Get-ItemParts $i
         $row = New-Object Windows.Controls.DockPanel
         $row.Margin = '0,0,0,6'
-        $dot = New-Object Windows.Shapes.Ellipse -Property @{ Width = 5; Height = 5; Fill = '#0067C0'; Margin = '0,8,10,0'; VerticalAlignment = 'Top' }
-        $text = New-Object Windows.Controls.TextBlock -Property @{ Text = $i; FontSize = 14; LineHeight = 21; TextWrapping = 'Wrap' }
-        $null = $row.Children.Add($dot); $null = $row.Children.Add($text)
+        $text = New-Object Windows.Controls.TextBlock -Property @{ Text = $t; FontSize = 14; LineHeight = 21; TextWrapping = 'Wrap' }
+        if ($m -eq 'dot') {
+            $mark = New-Object Windows.Shapes.Ellipse -Property @{ Width = 5; Height = 5; Fill = '#0067C0'; Margin = '3,8,12,0'; VerticalAlignment = 'Top' }   # 文字和勾勾、叉叉那種對齊
+        } else {
+            $color = if ($m -eq 'cross') { '#C42B1C' } else { '#0067C0' }
+            $data = if ($m -eq 'cross') { 'M1,1 L9,9 M9,1 L1,9' } else { 'M0.5,5 L3.8,8.3 L10,1.5' }
+            $mark = New-Object Windows.Shapes.Path -Property @{ Width = 11; Height = 10; Stroke = $color; StrokeThickness = 1.6
+                StrokeStartLineCap = 'Round'; StrokeEndLineCap = 'Round'; Margin = '0,5,9,0'; VerticalAlignment = 'Top' }
+            $mark.Data = [Windows.Media.Geometry]::Parse($data)
+            if ($m -eq 'cross') { $text.Foreground = '#C42B1C' }
+        }
+        $null = $row.Children.Add($mark); $null = $row.Children.Add($text)
         $null = $list.Children.Add($row)
     }
     $okBtn = $win.FindName('Yes'); $noBtn = $win.FindName('No')
@@ -158,7 +175,7 @@ $CuteXaml = @'
       <StackPanel Width="368">
         <TextBlock x:Name="Head" FontSize="24"/>
         <TextBlock x:Name="Intro" FontSize="13.5" Foreground="#8A5E70" TextWrapping="Wrap" Margin="0,4,0,0"/>
-        <Border Background="White" BorderBrush="#F2C9D8" BorderThickness="2" Padding="12,8" Margin="0,16,0,0">
+        <Border x:Name="ItemsBox" Background="White" BorderBrush="#F2C9D8" BorderThickness="2" Padding="12,8" Margin="0,16,0,0">
           <ScrollViewer x:Name="ItemsScroll" VerticalScrollBarVisibility="Auto">
             <StackPanel x:Name="Items"/>
           </ScrollViewer>
@@ -216,7 +233,7 @@ function New-PixelImage([string[]]$rows, $colors) {
 }
 
 # $hint 會放在按鈕左邊，前面有小時鐘
-function New-CuteWindow($head, $intro, [string[]]$items, $note, $okText, $cancelText, $hint) {
+function New-CuteWindow($head, $intro, [object[]]$items, $note, $okText, $cancelText, $hint) {
     $win = [Windows.Markup.XamlReader]::Parse($CuteXaml)
     try { $win.FontFamily = New-Object Windows.Media.FontFamily ([Uri]"$FontDir\"), './#Huninn, Microsoft JhengHei UI' }
     catch { $win.FontFamily = 'Microsoft JhengHei UI' }
@@ -231,23 +248,22 @@ function New-CuteWindow($head, $intro, [string[]]$items, $note, $okText, $cancel
         $tb = $win.FindName($pair[0])
         if ($pair[1]) { $tb.Text = $pair[1] } else { $tb.Visibility = 'Collapsed' }
     }
-    # 清單：失敗的打紅叉，登出了的打粉勾（只留名稱），其他（確認視窗的項目、演練模式）用粉色小方塊
+    # 清單：失敗的打紅叉（紅字），登出了的打粉勾，其他（確認視窗的項目、演練模式）用粉色小方塊
     $list = $win.FindName('Items')
-    # 失敗的項目會帶錯誤訊息，太多時清單改成可以捲，視窗才不會超出螢幕（上下其他部分約佔 260）
+    if (-not $items) { $win.FindName('ItemsBox').Visibility = 'Collapsed' }
+    # 太多時清單改成可以捲，視窗才不會超出螢幕（上下其他部分約佔 260）
     $win.FindName('ItemsScroll').MaxHeight = [Math]::Max(150, [Math]::Min(320, [Windows.SystemParameters]::WorkArea.Height - 260))
     foreach ($i in $items) {
+        $t, $m = Get-ItemParts $i
         $row = New-Object Windows.Controls.DockPanel
         $row.Margin = '0,4,0,4'
         $mark = New-Object Windows.Controls.Image -Property @{ Width = 16; Height = 14; Margin = '0,3,10,0'; VerticalAlignment = 'Top' }
         [Windows.Media.RenderOptions]::SetEdgeMode($mark, 'Aliased')
-        $text = New-Object Windows.Controls.TextBlock -Property @{ Text = $i; FontSize = 14.5; TextWrapping = 'Wrap' }
-        if ($i -match '：失敗') {
+        $text = New-Object Windows.Controls.TextBlock -Property @{ Text = $t; FontSize = 14.5; TextWrapping = 'Wrap' }
+        if ($m -eq 'cross') {
             $mark.Source = New-PixelImage $CrossRows @{ K = '#D94A4A' }
             $text.Foreground = '#B23A3A'
-        } elseif ($i -match '^(.+)：已登出') {
-            $mark.Source = New-PixelImage $CheckRows @{ K = '#FF5FA2' }
-            $text.Text = $Matches[1]
-        } elseif ($i -match '：本來就沒登入') {
+        } elseif ($m -eq 'check') {
             $mark.Source = New-PixelImage $CheckRows @{ K = '#FF5FA2' }
         } else {
             $mark = New-Object Windows.Shapes.Rectangle -Property @{ Width = 7; Height = 7; Fill = '#FF5FA2'; Margin = '2,7,17,0'; VerticalAlignment = 'Top' }
@@ -266,7 +282,7 @@ function New-CuteWindow($head, $intro, [string[]]$items, $note, $okText, $cancel
 }
 
 # 按下 okText 回傳 $true。依風格選視窗；視窗出錯時改用一般的 Windows 視窗，確保一定看得到
-function Show-Dialog($head, $intro, [string[]]$items, $note, $okText = '好', $cancelText, $hint) {
+function Show-Dialog($head, $intro, [object[]]$items, $note, $okText = '好', $cancelText, $hint) {
     try {
         $win = if ($Theme -eq '可愛') { New-CuteWindow $head $intro $items $note $okText $cancelText $hint }
                else { New-Dialog $head $intro $items $note $okText $cancelText $hint }
@@ -274,7 +290,7 @@ function Show-Dialog($head, $intro, [string[]]$items, $note, $okText = '好', $c
         return [bool]$win.Tag
     } catch {
         Log "視窗失敗（$Theme），改用一般視窗：$($_.Exception.Message)"
-        $text = (@($head, $intro) + @($items | ForEach-Object { "• $_" }) + @($note, $hint) | Where-Object { $_ }) -join "`n"
+        $text = (@($head, $intro) + @($items | ForEach-Object { $t, $m = Get-ItemParts $_; $(if ($m -eq 'cross') { '✘ ' } else { '• ' }) + $t }) + @($note, $hint) | Where-Object { $_ }) -join "`n"
         $buttons = if ($cancelText) { 'YesNo' } else { 'OK' }
         return (Show-Box $text $buttons) -in 'Yes', 'OK'
     }
@@ -367,6 +383,15 @@ function Step($key, [scriptblock]$body) {
     if ($ok -and $Change) { Add-Content -LiteralPath $StateFile -Value "$key`t$msg" -Encoding UTF8 }
 }
 
+# 從結果文字分類：fail 失敗、skip 本來就沒登入 / 沒安裝、locked 演練時被鎖住、done 登出了（演練時是「會登出」）。
+# 用文字分類，備援程序從狀態檔讀回來的結果也能用
+function Get-ResultKind($msg) {
+    if ($msg -match '：失敗') { 'fail' }
+    elseif ($msg -match '本來就沒登入|沒有安裝') { 'skip' }
+    elseif ($msg -match '演練模式看不到') { 'locked' }
+    else { 'done' }
+}
+
 # ---- 各項登出動作（都可以重複執行）----
 function Remove-LoginFile($path) {
     if (-not (Test-Path -LiteralPath $path)) { return '本來就沒登入' }
@@ -398,6 +423,7 @@ function Clear-Browser($root, [string[]]$procs) {
             $tokens += Invoke-WithRetry $procs { Invoke-Sql $w 'DELETE FROM token_service' }
         }
     }
+    if (-not $cookies -and -not $tokens) { return '本來就沒登入' }
     return "刪除 $cookies 個 cookie（所有網站）、$tokens 個瀏覽器帳號 token"
 }
 
@@ -494,7 +520,7 @@ if ($WatchPid) {
 if ($Live -and -not $Yes -and -not $Resumed) {
     # 兩種風格共用同一套文字，只有外觀不同
     $what = 'Claude 桌面版 / Claude Code', 'VS Code（含擴充功能）', 'LINE', 'Chrome、Edge 裡的所有網站'
-    $ok = Show-Dialog '要登出了嗎？' '會關閉 Chrome、Edge、Claude、VS Code、LINE，並登出：' $what '' '登出' '先不要' '大約需要 5 秒'
+    $ok = Show-Dialog '要登出了嗎？' '將登出以下應用程式' $what '' '登出' '先不要' '大約需要 5 秒'
     if (-not $ok) { exit }
 }
 
@@ -561,18 +587,28 @@ finally {
     }
     # 重做之後還是沒做到的，就當作失敗
     foreach ($k in $missing) { $Results[$k] = "$($StepNames[$k])：失敗（沒做完）" }
-    $failed = @($Results.Values | Where-Object { $_ -match '失敗' })
-    $head, $sub = if ($DryRun) { '演練模式', '沒有真的刪除任何東西' }
-                  elseif ($TestRoot) { '測試模式', '只動了測試資料夾' }
-                  elseif ($failed) { '需要手動登出QQ', '' }
-                  else { '登出完成！', '' }
+    # 結果視窗只列名稱（規則見 CLAUDE.md「結果視窗的規則」）：
+    # 有失敗時只列失敗的（紅叉）；沒失敗時列這次真的登出的（勾）。本來就沒登入、沒安裝的不列；數字和錯誤訊息只寫進紀錄檔
+    $kinds = [ordered]@{}
+    foreach ($k in $Results.Keys) { $kinds[$k] = Get-ResultKind $Results[$k] }
+    $failed = @($kinds.Keys | Where-Object { $kinds[$_] -eq 'fail' })
+    $shown = if ($failed -and -not $DryRun) { @($failed | ForEach-Object { @{ Text = $StepNames[$_]; Mark = 'cross' } }) }
+             else {
+                 @($kinds.Keys | Where-Object { $kinds[$_] -eq 'done' } |
+                   ForEach-Object { @{ Text = $StepNames[$_]; Mark = $(if ($DryRun) { 'dot' } else { 'check' }) } }) +
+                 @($kinds.Keys | Where-Object { $kinds[$_] -eq 'locked' } |
+                   ForEach-Object { @{ Text = "$($StepNames[$_])（程式開著，看不到）"; Mark = 'dot' } })
+             }
+    $head, $intro, $sub = if ($DryRun) { '只是測試', '', '沒有真的刪除任何東西' }
+                          elseif ($TestRoot) { '測試模式', '', '只動了測試資料夾' }
+                          elseif ($failed) { '出了一點意外QQ', '下面程式需要你手動登出', '' }
+                          elseif (-not $shown) { '沒有需要登出的程式', '', '' }
+                          else { '登出完成！', '', '' }
     $title = "$head$sub"
     $text = $title + "`n`n" + ($Results.Values -join "`n")
     Log "==== 結束：$title ===="
     Write-Output $text
     if (-not $Yes -and -not $TestRoot) {
-        # 有失敗時只列要自己登出的那幾項，其他成功的不列
-        $shown = if ($failed -and -not $DryRun) { $failed } else { @($Results.Values) }
-        Show-Dialog $head '' $shown $sub '好' | Out-Null
+        Show-Dialog $head $intro $shown $sub '好' | Out-Null
     }
 }
