@@ -1,5 +1,5 @@
 ﻿# 一鍵登出：Claude 桌面版、Claude Code、VS Code（含 Codex 擴充功能）、LINE、Chrome / Edge 裡的所有網站
-# 只會關閉這幾個程式，並刪除「登入用的 cookie / token」。不會刪書籤、歷史紀錄、密碼、LINE 聊天紀錄，也不會改系統設定。
+# 只會關閉這幾個程式，刪除「登入用的 cookie / token」和 Chrome 的瀏覽紀錄、快取。不會刪書籤、密碼、LINE 聊天紀錄，也不會改系統設定。
 #
 # 用法：
 #   一鍵登出.ps1                    正式執行（會先跳出確認視窗）
@@ -387,7 +387,7 @@ function Step($key, [scriptblock]$body) {
 # 用文字分類，備援程序從狀態檔讀回來的結果也能用
 function Get-ResultKind($msg) {
     if ($msg -match '：失敗') { 'fail' }
-    elseif ($msg -match '本來就沒登入|沒有安裝') { 'skip' }
+    elseif ($msg -match '本來就沒登入|本來就沒有|沒有安裝') { 'skip' }
     elseif ($msg -match '演練模式看不到') { 'locked' }
     else { 'done' }
 }
@@ -425,6 +425,25 @@ function Clear-Browser($root, [string[]]$procs) {
     }
     if (-not $cookies -and -not $tokens) { return '本來就沒登入' }
     return "刪除 $cookies 個 cookie（所有網站）、$tokens 個瀏覽器帳號 token"
+}
+
+# 瀏覽資料：歷史紀錄、下載紀錄、上次開的分頁、快取、網站存的資料（localStorage 等）。
+# 整個檔案或資料夾刪掉，瀏覽器下次開會自己重建。書籤、密碼、自動填入、擴充功能不動
+$BrowsingData = 'History', 'History-journal', 'Visited Links', 'Top Sites', 'Top Sites-journal', 'Shortcuts', 'Shortcuts-journal',
+                'Network Action Predictor', 'Network Action Predictor-journal', 'Favicons', 'Favicons-journal',
+                'Sessions', 'Sessions_Encrypted', 'JumpListIconsMostVisited', 'JumpListIconsRecentClosed', 'DownloadMetadata',
+                'Cache', 'Code Cache', 'GPUCache', 'Local Storage', 'Session Storage', 'IndexedDB', 'Service Worker'
+function Clear-BrowsingData($root, [string[]]$procs) {
+    if (-not (Test-Path -LiteralPath $root)) { return '沒有安裝' }
+    # 有 Preferences 的才是設定檔資料夾（Default、Profile 1……）
+    $profiles = @(Get-ChildItem -LiteralPath $root -Directory | Where-Object { Test-Path -LiteralPath "$($_.FullName)\Preferences" })
+    $found = @(foreach ($p in $profiles) { $BrowsingData | ForEach-Object { Join-Path $p.FullName $_ } | Where-Object { Test-Path -LiteralPath $_ } })
+    if (-not $found) { return '本來就沒有瀏覽資料' }
+    if ($Change) {
+        foreach ($f in $found) { Invoke-WithRetry $procs { Remove-Item -LiteralPath $f -Recurse -Force -ErrorAction Stop } }
+        return "已刪除（$($found.Count) 個檔案和資料夾）"
+    }
+    return "有瀏覽資料，正式執行時會刪除（$($found.Count) 個檔案和資料夾）"
 }
 
 # LINE 沒開「自動登入」時，關掉就等於登出。
@@ -519,7 +538,7 @@ if ($WatchPid) {
 # ---- 0. 確認 ----
 if ($Live -and -not $Yes -and -not $Resumed) {
     # 兩種風格共用同一套文字，只有外觀不同
-    $what = 'Claude 桌面版 / Claude Code', 'VS Code（含擴充功能）', 'LINE', 'Chrome、Edge 裡的所有網站'
+    $what = 'Claude 桌面版 / Claude Code', 'VS Code（含擴充功能）', 'LINE', 'Chrome、Edge 裡的所有網站', 'Chrome 瀏覽紀錄'
     $ok = Show-Dialog '要登出了嗎？' '將登出以下應用程式' $what '' '登出' '先不要' '大約需要 5 秒'
     if (-not $ok) { exit }
 }
@@ -527,7 +546,7 @@ if ($Live -and -not $Yes -and -not $Resumed) {
 # 所有步驟，依執行順序。結果視窗也照這個順序列
 $StepNames = [ordered]@{
     codex = 'Codex（VS Code）'; claudecode = 'Claude Code'; claude = 'Claude 桌面版'; line = 'LINE'
-    vscode = 'VS Code 帳號'; chrome = 'Chrome'; edge = 'Edge'
+    vscode = 'VS Code 帳號'; chrome = 'Chrome'; chromedata = 'Chrome 瀏覽紀錄'; edge = 'Edge'
 }
 $BackupPid = $null
 
@@ -573,6 +592,7 @@ try {
 
     # ---- 5. Chrome / Edge：刪掉所有網站的 cookie ----
     Step 'chrome' { Stop-Now 'chrome' 1500; Clear-Browser "$Local\Google\Chrome\User Data" 'chrome' }
+    Step 'chromedata' { Clear-BrowsingData "$Local\Google\Chrome\User Data" 'chrome' }
     Step 'edge'   { Stop-Now 'msedge' 1500; Clear-Browser "$Local\Microsoft\Edge\User Data" 'msedge' }
 
     if ($Change) { Add-Content -LiteralPath $StateFile -Value 'DONE' -Encoding UTF8 }

@@ -17,12 +17,13 @@
 - **VS Code** 本身登入的帳號（GitHub、微軟……），和 **Codex 擴充功能**
 - **LINE 電腦版**（安裝在 `%LOCALAPPDATA%\LINE` 的一般版，不是 Microsoft Store 版）
 - **Chrome、Edge 裡的所有網站**（Google、GitHub、ChatGPT……全部）
+- **Chrome 瀏覽紀錄**：歷史紀錄、下載紀錄、上次開的分頁、快取、網站存的資料
 
 整個流程大約 5 秒，結束時會跳出結果視窗，逐項列出登出成功與否。
 
 ## 不會做什麼
 
-- 不刪書籤、瀏覽紀錄、儲存的密碼、下載內容
+- 不刪書籤、儲存的密碼、自動填入、下載的檔案（Edge 的瀏覽紀錄也不刪）
 - 不刪 LINE 聊天紀錄
 - 不改系統設定，不需要系統管理員權限
 - 不安裝任何東西（只用 Windows 內建的 PowerShell 和 `winsqlite3.dll`）
@@ -59,7 +60,8 @@ powershell -ExecutionPolicy Bypass -File 一鍵登出.ps1 -DryRun
 - Claude 桌面版被關掉後 1 秒內會自己重開並鎖住檔案，所以對它採取「強制結束、立刻清除、失敗就重試」的做法，最多 20 次。
 - Chrome / Edge 用 SQLite 直接清空每個設定檔的 cookie 資料表和瀏覽器帳號 token，其他資料表不動。
 - VS Code 關掉後，從 `state.vscdb`（和它的備份檔）刪掉 `secret://` 開頭的資料，也就是 VS Code 和擴充功能存的帳號 token。
-- 七個步驟各自獨立，一步失敗不影響其他步驟。
+- Chrome 的瀏覽紀錄和快取是整個檔案或資料夾刪掉（History、Cache、Local Storage……），Chrome 下次開會自己重建。
+- 八個步驟各自獨立，一步失敗不影響其他步驟。
 - 開始時會用 WMI 另外啟動一個備援程序；主程序中途被關掉的話，備援程序會接手沒做完的步驟。
 - 結果視窗放在 `finally` 裡，不管中途發生什麼事都會顯示。視窗本身出錯時會退回 Windows 內建的訊息框。
 
