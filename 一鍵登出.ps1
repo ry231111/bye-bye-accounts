@@ -579,6 +579,71 @@ if ($WatchPid) {
     $Resumed = $true
 }
 
+# ---- 自動更新：GitHub 上有新版就問要不要更新 ----
+# 比對每個檔案的 git 雜湊，不用另外記版本號。沒網路、連不上就直接跳過，不跳任何視窗
+$Repo = 'ry231111/bye-bye-accounts'
+
+function Get-GitHash($path) {
+    $bytes = [IO.File]::ReadAllBytes($path)
+    $head = [Text.Encoding]::ASCII.GetBytes("blob $($bytes.Length)`0")
+    $sha = [Security.Cryptography.SHA1]::Create()
+    $null = $sha.TransformBlock($head, 0, $head.Length, $null, 0)
+    $null = $sha.TransformFinalBlock($bytes, 0, $bytes.Length)
+    return -join ($sha.Hash | ForEach-Object { $_.ToString('x2') })
+}
+
+# 回傳 GitHub 上和這個資料夾不一樣的檔案（相對路徑）
+function Get-ChangedFiles($dir) {
+    [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor 'Tls12'
+    $tree = Invoke-RestMethod "https://api.github.com/repos/$Repo/git/trees/main?recursive=1" -TimeoutSec 3
+    return @($tree.tree | Where-Object { $_.type -eq 'blob' } | Where-Object {
+        $f = Join-Path $dir $_.path
+        -not (Test-Path -LiteralPath $f) -or (Get-GitHash $f) -ne $_.sha
+    } | ForEach-Object { $_.path })
+}
+
+# 下載最新版，只蓋掉有變的檔案；一鍵登出.ps1 放最後，前面失敗就不換主程式
+function Update-Files($dir, [string[]]$changed) {
+    $tmp = Join-Path $env:TEMP "一鍵登出-更新-$PID"
+    $zip = "$tmp.zip"
+    try {
+        $ProgressPreference = 'SilentlyContinue'   # 進度條會讓 Windows PowerShell 下載變很慢
+        Invoke-WebRequest "https://github.com/$Repo/archive/refs/heads/main.zip" -OutFile $zip -UseBasicParsing -TimeoutSec 30
+        Add-Type -AssemblyName System.IO.Compression.FileSystem
+        [IO.Compression.ZipFile]::ExtractToDirectory($zip, $tmp)
+        $src = (Get-ChildItem -LiteralPath $tmp -Directory | Select-Object -First 1).FullName
+        $self = Split-Path $PSCommandPath -Leaf
+        foreach ($p in @($changed | Where-Object { $_ -ne $self }) + @($changed | Where-Object { $_ -eq $self })) {
+            $to = Join-Path $dir $p
+            $null = New-Item -ItemType Directory -Force -Path (Split-Path $to)
+            Copy-Item -LiteralPath (Join-Path $src $p) -Destination $to -Force -ErrorAction Stop
+            Log "更新：$p"
+        }
+    } finally {
+        Remove-Item -LiteralPath $zip, $tmp -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
+# 用 git 下載的（資料夾裡有 .git）請用 git pull，這裡不碰，免得蓋掉自己改到一半的東西
+if ($Live -and -not $Yes -and -not $Resumed -and -not (Test-Path -LiteralPath (Join-Path $PSScriptRoot '.git'))) {
+    $changed = $null
+    try { $changed = Get-ChangedFiles $PSScriptRoot } catch { Log "檢查新版失敗（跳過）：$($_.Exception.Message)" }
+    if ($changed) {
+        Log "有新版：$($changed -join '、')"
+        if (Show-Dialog '有新版本了！' '要先更新再登出嗎？你選的風格會保留' $null '' '更新' '下次再說' '大約需要 5 秒') {
+            try {
+                Update-Files $PSScriptRoot $changed
+                # 用新版重新開始，直接跳到「要登出了嗎？」
+                Start-Process powershell.exe -WindowStyle Hidden -ArgumentList "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$PSCommandPath`" -Theme $Theme"
+                exit
+            } catch {
+                Log "更新失敗：$($_.Exception.Message)"
+                $null = Show-Dialog '更新沒有成功' '這次先用目前的版本登出' $null '' '好'
+            }
+        }
+    }
+}
+
 # ---- 0. 確認 ----
 if ($Live -and -not $Yes -and -not $Resumed) {
     # 兩種風格共用同一套文字，只有外觀不同
