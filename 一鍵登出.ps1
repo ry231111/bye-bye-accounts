@@ -425,6 +425,15 @@ function Remove-JsonKeys($file, [string[]]$keys) {
     return $n
 }
 
+# 瀏覽器是被強制結束的，下次開會問「要還原網頁嗎？」。上次開的分頁已經刪了，還原也沒用，所以記成正常關閉
+function Set-CleanExit($file) {
+    if (-not (Test-Path -LiteralPath $file)) { return }
+    $o = $Json.DeserializeObject([IO.File]::ReadAllText($file))
+    if ($o['profile'] -isnot [Collections.IDictionary]) { $o['profile'] = @{} }
+    $o['profile']['exit_type'] = 'Normal'; $o['profile']['exited_cleanly'] = $true
+    if ($Change) { [IO.File]::WriteAllText($file, $Json.Serialize($o), (New-Object Text.UTF8Encoding $false)) }
+}
+
 # Chrome 登入的 Google 帳號存在這台電腦上的東西：右上角的名字和頭像、帳號的書籤和密碼。
 # 書籤、密碼存在 Google 帳號裡，Chrome 自己登出時也會刪掉本機這份，重新登入會再載回來；本機自己的書籤（Bookmarks）不動
 $AccountFiles = 'AccountBookmarks', 'AccountBookmarks.bak', 'EncryptedAccountBookmarks2', 'EncryptedAccountBookmarks2.bak',
@@ -451,8 +460,9 @@ function Clear-BrowserAccount($root, $profiles, [string[]]$procs) {
 function Clear-Browser($root, [string[]]$procs, [switch]$Account) {
     if (-not (Test-Path -LiteralPath $root)) { return '沒有安裝' }
     $profiles = @(Get-ChildItem -LiteralPath $root -Directory)
-    $cookies = 0; $tokens = 0; $account = 0
-    if ($Account) { $account = Clear-BrowserAccount $root @($profiles | Where-Object { Test-Path -LiteralPath "$($_.FullName)\Preferences" }) $procs }
+    # 變數不分大小寫，不能叫 $account，會撞到 [switch]$Account
+    $cookies = 0; $tokens = 0; $accountItems = 0
+    if ($Account) { $accountItems = Clear-BrowserAccount $root @($profiles | Where-Object { Test-Path -LiteralPath "$($_.FullName)\Preferences" }) $procs }
     foreach ($p in $profiles) {
         $f = Join-Path $p.FullName 'Network\Cookies'
         if (Test-Path -LiteralPath $f) {
@@ -465,9 +475,9 @@ function Clear-Browser($root, [string[]]$procs, [switch]$Account) {
             $tokens += Invoke-WithRetry $procs { Invoke-Sql $w 'DELETE FROM token_service' }
         }
     }
-    if (-not $cookies -and -not $tokens -and -not $account) { return '本來就沒登入' }
+    if (-not $cookies -and -not $tokens -and -not $accountItems) { return '本來就沒登入' }
     $msg = "刪除 $cookies 個 cookie（所有網站）、$tokens 個瀏覽器帳號 token"
-    if ($Account) { $msg += "、$account 項瀏覽器帳號資料（名字、頭像、帳號書籤和密碼）" }
+    if ($Account) { $msg += "、$accountItems 項瀏覽器帳號資料（名字、頭像、帳號書籤和密碼）" }
     return $msg
 }
 
@@ -482,6 +492,7 @@ function Clear-BrowsingData($root, [string[]]$procs) {
     # 有 Preferences 的才是設定檔資料夾（Default、Profile 1……）
     $profiles = @(Get-ChildItem -LiteralPath $root -Directory | Where-Object { Test-Path -LiteralPath "$($_.FullName)\Preferences" })
     $found = @(foreach ($p in $profiles) { $BrowsingData | ForEach-Object { Join-Path $p.FullName $_ } | Where-Object { Test-Path -LiteralPath $_ } })
+    if ($Change) { foreach ($p in $profiles) { Invoke-WithRetry $procs { Set-CleanExit "$($p.FullName)\Preferences" } } }
     if (-not $found) { return '本來就沒有瀏覽資料' }
     if ($Change) {
         foreach ($f in $found) { Invoke-WithRetry $procs { Remove-Item -LiteralPath $f -Recurse -Force -ErrorAction Stop } }
