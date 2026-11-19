@@ -630,6 +630,8 @@ function Update-Files($dir, [string[]]$changed) {
             Copy-Item -LiteralPath (Join-Path $src $p) -Destination $to -Force -ErrorAction Stop
             Log "更新：$p"
         }
+        # 改名後留在舊版資料夾的檔案
+        Remove-Item -LiteralPath (Join-Path $dir '建立桌面捷徑(初次使用點我).ps1') -Force -ErrorAction SilentlyContinue
     } finally {
         Remove-Item -LiteralPath $zip, $tmp -Recurse -Force -ErrorAction SilentlyContinue
     }
