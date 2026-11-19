@@ -1,5 +1,5 @@
 ﻿# 一鍵登出：Claude 桌面版、Claude Code、VS Code（含 Codex 擴充功能）、LINE、Chrome / Edge 裡的所有網站
-# 只會關閉這幾個程式，刪除「登入用的 cookie / token」和 Chrome 的瀏覽紀錄、快取。不會刪書籤、密碼、LINE 聊天紀錄，也不會改系統設定。
+# 只會關閉這幾個程式，刪除「登入用的 cookie / token」和 Chrome 的瀏覽紀錄、快取，並登出 Chrome 本身的 Google 帳號（名字、頭像、帳號書籤和密碼會從這台電腦拿掉，重新登入會回來）。不會刪本機的書籤、密碼、LINE 聊天紀錄，也不會改系統設定。
 #
 # 用法：
 #   一鍵登出.ps1                    正式執行（會先跳出確認視窗）
@@ -407,10 +407,52 @@ function Invoke-Sql($file, $sql) {
     finally { Remove-Item -LiteralPath $copy -Force -ErrorAction SilentlyContinue }
 }
 
-function Clear-Browser($root, [string[]]$procs) {
+Add-Type -AssemblyName System.Web.Extensions
+$Json = New-Object System.Web.Script.Serialization.JavaScriptSerializer
+$Json.MaxJsonLength = [int]::MaxValue; $Json.RecursionLimit = 1000
+
+# 拿掉 JSON 檔裡的幾個鍵（路徑用點分隔），有拿掉才寫回去。回傳拿掉幾個
+function Remove-JsonKeys($file, [string[]]$keys) {
+    if (-not (Test-Path -LiteralPath $file)) { return 0 }
+    $o = $Json.DeserializeObject([IO.File]::ReadAllText($file))
+    $n = 0
+    foreach ($k in $keys) {
+        $parts = $k.Split('.'); $d = $o
+        foreach ($p in $parts | Select-Object -SkipLast 1) { if ($d -is [Collections.IDictionary] -and $d.ContainsKey($p)) { $d = $d[$p] } else { $d = $null; break } }
+        if ($d -is [Collections.IDictionary] -and $d.ContainsKey($parts[-1])) { $null = $d.Remove($parts[-1]); $n++ }
+    }
+    if ($n -and $Change) { [IO.File]::WriteAllText($file, $Json.Serialize($o), (New-Object Text.UTF8Encoding $false)) }
+    return $n
+}
+
+# Chrome 登入的 Google 帳號存在這台電腦上的東西：右上角的名字和頭像、帳號的書籤和密碼。
+# 書籤、密碼存在 Google 帳號裡，Chrome 自己登出時也會刪掉本機這份，重新登入會再載回來；本機自己的書籤（Bookmarks）不動
+$AccountFiles = 'AccountBookmarks', 'AccountBookmarks.bak', 'EncryptedAccountBookmarks2', 'EncryptedAccountBookmarks2.bak',
+                'Login Data For Account', 'Login Data For Account-journal', 'Account Web Data', 'Account Web Data-journal',
+                'Google Profile Picture.png', 'Google Profile.ico', 'Accounts\Avatar Images'
+function Clear-BrowserAccount($root, $profiles, [string[]]$procs) {
+    $n = 0
+    foreach ($p in $profiles) {
+        $d = $p.FullName
+        $n += Invoke-WithRetry $procs { Remove-JsonKeys "$d\Preferences" 'account_info', 'sync.gaia_id', 'sync.transport_data_per_account', 'signin.accounts_metadata_dict' }
+        $files = @($AccountFiles | ForEach-Object { Join-Path $d $_ } | Where-Object { Test-Path -LiteralPath $_ })
+        $n += $files.Count
+        if ($Change) { foreach ($f in $files) { Invoke-WithRetry $procs { Remove-Item -LiteralPath $f -Recurse -Force -ErrorAction Stop } } }
+    }
+    # Local State 記著每個設定檔的帳號名字和頭像（設定檔選單、右上角用）
+    $keys = foreach ($p in $profiles) {
+        'gaia_id', 'user_name', 'gaia_name', 'gaia_given_name', 'gaia_picture_file_name', 'last_downloaded_gaia_picture_url_with_size' |
+            ForEach-Object { "profile.info_cache.$($p.Name).$_" }
+    }
+    $n += Invoke-WithRetry $procs { Remove-JsonKeys "$root\Local State" $keys }
+    return $n
+}
+
+function Clear-Browser($root, [string[]]$procs, [switch]$Account) {
     if (-not (Test-Path -LiteralPath $root)) { return '沒有安裝' }
     $profiles = @(Get-ChildItem -LiteralPath $root -Directory)
-    $cookies = 0; $tokens = 0
+    $cookies = 0; $tokens = 0; $account = 0
+    if ($Account) { $account = Clear-BrowserAccount $root @($profiles | Where-Object { Test-Path -LiteralPath "$($_.FullName)\Preferences" }) $procs }
     foreach ($p in $profiles) {
         $f = Join-Path $p.FullName 'Network\Cookies'
         if (Test-Path -LiteralPath $f) {
@@ -423,8 +465,10 @@ function Clear-Browser($root, [string[]]$procs) {
             $tokens += Invoke-WithRetry $procs { Invoke-Sql $w 'DELETE FROM token_service' }
         }
     }
-    if (-not $cookies -and -not $tokens) { return '本來就沒登入' }
-    return "刪除 $cookies 個 cookie（所有網站）、$tokens 個瀏覽器帳號 token"
+    if (-not $cookies -and -not $tokens -and -not $account) { return '本來就沒登入' }
+    $msg = "刪除 $cookies 個 cookie（所有網站）、$tokens 個瀏覽器帳號 token"
+    if ($Account) { $msg += "、$account 項瀏覽器帳號資料（名字、頭像、帳號書籤和密碼）" }
+    return $msg
 }
 
 # 瀏覽資料：歷史紀錄、下載紀錄、上次開的分頁、快取、網站存的資料（localStorage 等）。
@@ -591,7 +635,7 @@ try {
     Step 'vscode' { Invoke-WithRetry 'Code' { Clear-VSCode } }
 
     # ---- 5. Chrome / Edge：刪掉所有網站的 cookie ----
-    Step 'chrome' { Stop-Now 'chrome' 1500; Clear-Browser "$Local\Google\Chrome\User Data" 'chrome' }
+    Step 'chrome' { Stop-Now 'chrome' 1500; Clear-Browser "$Local\Google\Chrome\User Data" 'chrome' -Account }
     Step 'chromedata' { Clear-BrowsingData "$Local\Google\Chrome\User Data" 'chrome' }
     Step 'edge'   { Stop-Now 'msedge' 1500; Clear-Browser "$Local\Microsoft\Edge\User Data" 'msedge' }
 
